@@ -13,6 +13,7 @@ handler = WebhookHandler(os.environ.get("CHANNEL_SECRET"))
 
 user_memory = {}
 user_memory['records'] = {}
+user_memory['last_suggestion'] = {}  # 新增記錄上一筆建議
 
 def clean_input(text):
     return ''.join(c for c in text if c in '莊閒和')
@@ -152,42 +153,47 @@ def handle_message(event):
     if raw_input in ["下課", "結束分析"]:
         user_memory[user_id] = ''
         user_memory['records'][user_id] = []
+        user_memory['last_suggestion'][user_id] = ''
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text="✅ 已結束分析，歡迎再次使用！"))
         return
 
     if raw_input == "清除紀錄":
         user_memory['records'][user_id] = []
+        user_memory['last_suggestion'][user_id] = ''
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text="✅ 已清除下注紀錄"))
         return
 
     if all(c in '莊閒和' for c in raw_input):
         cards = user_memory.get(user_id, '') + clean_input(raw_input)
         user_memory[user_id] = cards
-    else:
-        cards = ''
 
-    if not cards:
-        reply = TextSendMessage(text="請輸入包含『莊』『閒』『和』的牌路，例如：莊閒莊莊閒")
-        line_bot_api.reply_message(event.reply_token, reply)
+        # 記錄上一筆建議並比對實際結果
+        last = user_memory['last_suggestion'].get(user_id)
+        if last:
+            user_memory['records'].setdefault(user_id, []).append({
+                'suggestion': last,
+                'hit': last == raw_input
+            })
+            user_memory['records'][user_id] = user_memory['records'][user_id][-5:]
+
+        # 更新新的預測
+        suggestion = predict_next_bet(cards)
+        confidence = calculate_confidence(cards, suggestion)
+        hit_rate = calculate_hit_rate(cards)
+        user_memory['last_suggestion'][user_id] = suggestion
+
+        analysis_flex = generate_analysis_flex(cards, suggestion, confidence, hit_rate)
+        record_flex = generate_record_flex(user_memory['records'][user_id])
+
+        line_bot_api.reply_message(event.reply_token, [
+            FlexSendMessage(alt_text="百家樂分析結果", contents=analysis_flex),
+            FlexSendMessage(alt_text="下注紀錄", contents=record_flex)
+        ])
         return
 
-    suggestion = predict_next_bet(cards)
-    confidence = calculate_confidence(cards, suggestion)
-    hit_rate = calculate_hit_rate(cards)
-
-    user_memory['records'].setdefault(user_id, []).append({
-        'suggestion': suggestion,
-        'hit': suggestion == cards[-1]
-    })
-    user_memory['records'][user_id] = user_memory['records'][user_id][-5:]
-
-    analysis_flex = generate_analysis_flex(cards, suggestion, confidence, hit_rate)
-    record_flex = generate_record_flex(user_memory['records'][user_id])
-
-    line_bot_api.reply_message(event.reply_token, [
-        FlexSendMessage(alt_text="百家樂分析結果", contents=analysis_flex),
-        FlexSendMessage(alt_text="下注紀錄", contents=record_flex)
-    ])
+    # 其他無效指令回覆
+    reply = TextSendMessage(text="請輸入包含『莊』『閒』『和』的牌路，例如：莊閒莊莊閒")
+    line_bot_api.reply_message(event.reply_token, reply)
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
