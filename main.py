@@ -54,9 +54,7 @@ def generate_analysis_flex(cards, suggestion, confidence, hit_rate):
     count_h = cards.count('和')
     total = len(cards)
     percent = lambda c: round(c / total * 100, 1) if total > 0 else 0
-
     color_map = {"莊": "#FF4444", "閒": "#0000FF", "和": "#00C300"}
-
     return {
         "type": "bubble",
         "body": {
@@ -83,6 +81,31 @@ def generate_analysis_flex(cards, suggestion, confidence, hit_rate):
                         {"type": "button", "action": {"type": "message", "label": "和", "text": "和"}, "color": "#00C300", "style": "primary"}
                     ]
                 }
+            ]
+        }
+    }
+
+def generate_record_flex(records):
+    suggested = " → ".join([r['suggestion'] for r in records])
+    results = " → ".join(["✅" if r['hit'] else "❌" for r in records])
+    profits = " → ".join([f"{'+100' if r['hit'] else '-100'}" for r in records])
+    total_profit = sum([100 if r['hit'] else -100 for r in records])
+    hit_rate = round(100 * sum(1 for r in records if r['hit']) / len(records), 1)
+    return {
+        "type": "bubble",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "md",
+            "contents": [
+                {"type": "text", "text": "🎲 最近紀錄", "weight": "bold", "size": "lg"},
+                {"type": "separator", "margin": "md"},
+                {"type": "text", "text": f"建議：{suggested}", "size": "sm"},
+                {"type": "text", "text": f"結果：{results}", "size": "sm"},
+                {"type": "text", "text": f"獲利：{profits}", "size": "sm"},
+                {"type": "separator", "margin": "md"},
+                {"type": "text", "text": f"💰 總損益：{total_profit}", "weight": "bold", "color": "#00C851"},
+                {"type": "text", "text": f"🎯 命中率：{hit_rate}%", "weight": "bold"}
             ]
         }
     }
@@ -134,8 +157,10 @@ def handle_message(event):
         user_memory['last_suggestion'][user_id] = suggestion
 
         analysis_flex = generate_analysis_flex(cards, suggestion, confidence, hit_rate)
+        record_flex = generate_record_flex(user_memory['records'][user_id])
         line_bot_api.reply_message(event.reply_token, [
-            FlexSendMessage(alt_text="百家樂分析結果", contents=analysis_flex)
+            FlexSendMessage(alt_text="百家樂分析結果", contents=analysis_flex),
+            FlexSendMessage(alt_text="下注紀錄", contents=record_flex)
         ])
 
         last_record = user_memory['records'][user_id][-1] if user_memory['records'][user_id] else None
