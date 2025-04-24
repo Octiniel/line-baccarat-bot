@@ -3,13 +3,12 @@ from flask import Flask, request
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import (
-    MessageEvent, TextMessage, TextSendMessage, FlexSendMessage, QuickReply, QuickReplyButton, MessageAction
+    MessageEvent, TextMessage, TextSendMessage, FlexSendMessage
 )
 import os
 import random
 
 app = Flask(__name__)
-
 line_bot_api = LineBotApi(os.environ.get("CHANNEL_ACCESS_TOKEN"))
 handler = WebhookHandler(os.environ.get("CHANNEL_SECRET"))
 
@@ -29,18 +28,86 @@ def callback():
 def clean_input(text):
     return ''.join(c for c in text if c in '莊閒和')
 
+def predict_next_bet(cards):
+    if len(cards) < 3:
+        return random.choice(['莊', '閒'])
+    last3 = cards[-3:]
+    if all(c == last3[0] for c in last3):
+        return last3[0]
+    return '閒' if cards[-1] == '莊' else '莊'
+
+def calculate_confidence(cards, suggestion):
+    score = 50
+    recent = cards[-5:]
+    if recent.count(suggestion) == 0:
+        score += 20
+    elif recent.count(suggestion) == 1:
+        score += 10
+    elif recent.count(suggestion) >= 4:
+        score -= 20
+    if len(set(recent)) == 1:
+        score += 15
+    return min(100, max(30, score))
+
+def calculate_hit_rate(cards):
+    total = len(cards)
+    correct = 0
+    for i in range(1, len(cards)):
+        if cards[i] != cards[i - 1] and cards[i] in '莊閒':
+            correct += 1
+    return round(correct / (total - 1) * 100, 1) if total > 1 else 0
+
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
     user_id = event.source.user_id
     raw_input = event.message.text.strip()
 
     if raw_input == "選單":
-        carousel = {"type": "carousel", "contents": [{"type": "bubble", "body": {"type": "box", "layout": "horizontal", "spacing": "md", "contents": [{"type": "button", "action": {"type": "message", "label": "莊", "text": "莊"}, "style": "primary", "color": "#FF4444"}, {"type": "button", "action": {"type": "message", "label": "閒", "text": "閒"}, "style": "primary", "color": "#0000FF"}, {"type": "button", "action": {"type": "message", "label": "和", "text": "和"}, "style": "primary", "color": "#00C300"}, {"type": "button", "action": {"type": "message", "label": "顯示紀錄", "text": "顯示紀錄"}, "style": "secondary", "color": "#AAAAAA"}]}}]}
+        carousel = {
+            "type": "carousel",
+            "contents": [
+                {
+                    "type": "bubble",
+                    "body": {
+                        "type": "box",
+                        "layout": "horizontal",
+                        "spacing": "md",
+                        "contents": [
+                            {
+                                "type": "button",
+                                "action": {"type": "message", "label": "莊", "text": "莊"},
+                                "style": "primary",
+                                "color": "#FF4444"
+                            },
+                            {
+                                "type": "button",
+                                "action": {"type": "message", "label": "閒", "text": "閒"},
+                                "style": "primary",
+                                "color": "#0000FF"
+                            },
+                            {
+                                "type": "button",
+                                "action": {"type": "message", "label": "和", "text": "和"},
+                                "style": "primary",
+                                "color": "#00C300"
+                            },
+                            {
+                                "type": "button",
+                                "action": {"type": "message", "label": "顯示紀錄", "text": "顯示紀錄"},
+                                "style": "secondary",
+                                "color": "#AAAAAA"
+                            }
+                        ]
+                    }
+                }
+            ]
+        }
         line_bot_api.reply_message(event.reply_token, FlexSendMessage(alt_text="功能選單", contents=carousel))
         return
 
     if raw_input in ["下課", "結束分析"]:
         user_memory[user_id] = ''
+        user_memory['records'][user_id] = []
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text="✅ 已結束分析，歡迎再次使用！"))
         return
 
@@ -91,8 +158,9 @@ def handle_message(event):
     if not cards:
         reply = TextSendMessage(text="請輸入包含『莊』『閒』『和』的牌路，例如：莊閒莊莊閒")
     else:
-        suggestion = '閒' if cards[-1] == '莊' else '莊'
-        confidence = random.randint(40, 90)
+        suggestion = predict_next_bet(cards)
+        confidence = calculate_confidence(cards, suggestion)
+        hit_rate = calculate_hit_rate(cards)
 
         user_memory['records'].setdefault(user_id, []).append({
             'suggestion': suggestion,
@@ -100,7 +168,26 @@ def handle_message(event):
         })
         user_memory['records'][user_id] = user_memory['records'][user_id][-5:]
 
-        reply = TextSendMessage(text=f"🔮 推薦下注：{suggestion}（信心 {confidence}%）")
+        suggestion_color = "#FF4444" if suggestion == "莊" else "#0000FF" if suggestion == "閒" else "#00C300"
+
+        bubble = {
+            "type": "bubble",
+            "body": {
+                "type": "box",
+                "layout": "vertical",
+                "spacing": "md",
+                "paddingAll": "lg",
+                "contents": [
+                    {"type": "text", "text": "📊 百家樂分析結果", "weight": "bold", "size": "xl"},
+                    {"type": "separator", "margin": "md"},
+                    {"type": "text", "text": f"🎯 命中率：{hit_rate}%", "size": "sm"},
+                    {"type": "separator", "margin": "md"},
+                    {"type": "text", "text": f"🔮 推薦下注：{suggestion}（信心 {confidence}%）", "weight": "bold", "color": suggestion_color}
+                ]
+            }
+        }
+
+        reply = FlexSendMessage(alt_text="百家樂分析結果", contents=bubble)
 
     line_bot_api.reply_message(event.reply_token, reply)
 
