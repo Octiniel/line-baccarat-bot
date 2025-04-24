@@ -34,19 +34,29 @@ def predict_next_bet(cards):
     if len(cards) < 6:
         return random.choice(['莊', '閒'])
 
-    # 趨勢反轉法：連出一方太多，預測反向
     last5 = cards[-5:]
     if last5.count('莊') >= 4:
         return '閒'
     if last5.count('閒') >= 4:
         return '莊'
 
-    # 連續兩次莊閒切換，預測持續切換
     if len(cards) >= 4 and cards[-1] != cards[-2] != cards[-3] != cards[-4]:
         return '莊' if cards[-1] == '閒' else '閒'
 
-    # 若無明顯趨勢，根據最後一局預測相反
     return '閒' if cards[-1] == '莊' else '莊'
+
+def calculate_confidence(cards, suggestion):
+    score = 50
+    recent = cards[-5:]
+    if recent.count(suggestion) == 0:
+        score += 20
+    elif recent.count(suggestion) == 1:
+        score += 10
+    elif recent.count(suggestion) >= 4:
+        score -= 20
+    if len(set(recent)) == 1:
+        score += 15
+    return min(100, max(30, score))
 
 def calculate_win_rate(cards):
     total = len(cards)
@@ -114,6 +124,7 @@ def handle_message(event):
     else:
         cards = cards[-30:]
         suggestion = predict_next_bet(cards)
+        confidence = calculate_confidence(cards, suggestion)
         stats = calculate_win_rate(cards)
         streak_note = detect_streak(cards)
         hit_rate = calculate_hit_rate(cards)
@@ -123,7 +134,7 @@ def handle_message(event):
             f"莊:{stats['banker_rate']}%\n"
             f"閒:{stats['player_rate']}%\n"
             f"和:{stats['draw_rate']}%\n\n"
-            f"推薦：{suggestion}"
+            f"推薦：{suggestion}（信心 {confidence}%）"
         )
         if streak_note:
             summary += f"\n{streak_note}"
