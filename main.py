@@ -95,7 +95,7 @@ def handle_message(event):
         user_memory[user_id] = cards
 
         last = user_memory['last_suggestion'].get(user_id)
-        if last is not None and last != "":
+        if last and raw_input != "和":
             user_memory['records'].setdefault(user_id, []).append({
                 "suggestion": last,
                 "hit": last == raw_input
@@ -108,8 +108,7 @@ def handle_message(event):
 
         analysis_flex = generate_analysis_flex(cards, suggestion, confidence, hit_rate)
 
-        # 🟢 回覆順序先：命中提示 ➜ 分析卡
-        if user_memory['records'][user_id]:
+        if raw_input != "和" and user_memory['records'][user_id]:
             last_record = user_memory['records'][user_id][-1]
             result_text = f"好耶！這局開「{raw_input}」✅ 命中！" if last_record['hit'] else f"這局開「{raw_input}」❌ 沒中～"
             total_profit = sum([100 if r['hit'] else -100 for r in user_memory['records'][user_id]])
@@ -120,7 +119,6 @@ def handle_message(event):
                 FlexSendMessage(alt_text="百家樂分析結果", contents=analysis_flex)
             ])
         else:
-            # 第一筆，只回分析卡
             line_bot_api.reply_message(event.reply_token, [
                 FlexSendMessage(alt_text="百家樂分析結果", contents=analysis_flex)
             ])
