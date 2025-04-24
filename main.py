@@ -30,15 +30,23 @@ def clean_input(text):
     return ''.join(c for c in text if c in '莊閒和')
 
 def predict_next_bet(cards):
+    # 智能預測下一局方向（非單純比例）
     if len(cards) < 6:
         return random.choice(['莊', '閒'])
-    last_five = cards[-5:]
-    if last_five.count('莊') >= 4:
+
+    # 趨勢反轉法：連出一方太多，預測反向
+    last5 = cards[-5:]
+    if last5.count('莊') >= 4:
         return '閒'
-    elif last_five.count('閒') >= 4:
+    if last5.count('閒') >= 4:
         return '莊'
-    else:
-        return random.choice(['莊', '閒'])
+
+    # 連續兩次莊閒切換，預測持續切換
+    if len(cards) >= 4 and cards[-1] != cards[-2] != cards[-3] != cards[-4]:
+        return '莊' if cards[-1] == '閒' else '閒'
+
+    # 若無明顯趨勢，根據最後一局預測相反
+    return '閒' if cards[-1] == '莊' else '莊'
 
 def calculate_win_rate(cards):
     total = len(cards)
