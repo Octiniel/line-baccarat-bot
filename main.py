@@ -2,7 +2,8 @@ from flask import Flask, request
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import (
-    MessageEvent, TextMessage, TextSendMessage, QuickReply, QuickReplyButton, MessageAction
+    MessageEvent, TextMessage, TextSendMessage, FlexSendMessage, BubbleContainer, BoxComponent,
+    TextComponent, QuickReply, QuickReplyButton, MessageAction
 )
 import os
 import random
@@ -12,37 +13,51 @@ app = Flask(__name__)
 line_bot_api = LineBotApi(os.environ.get("CHANNEL_ACCESS_TOKEN"))
 handler = WebhookHandler(os.environ.get("CHANNEL_SECRET"))
 
-user_memory = {}  # ✅ 使用者牌路記憶區
+user_memory = {}
 
 @app.route("/callback", methods=['POST'])
 def callback():
     signature = request.headers['X-Line-Signature']
     body = request.get_data(as_text=True)
-
     try:
         handler.handle(body, signature)
     except InvalidSignatureError:
         return 'Invalid signature', 400
-
     return 'OK', 200
 
 def clean_input(text):
     return ''.join(c for c in text if c in '莊閒和')
 
+def detect_special_patterns(cards):
+    if len(cards) < 6:
+        return None
+
+    last = cards[-6:]
+
+    # 長龍判斷（連續同一方至少四次）
+    if all(c == last[0] for c in last[-4:]):
+        return f"🔁 偵測到長龍：{last[-1]} 連續 4 次以上"
+
+    # 單跳（交錯重複）
+    if len(last) >= 6 and all(last[i] != last[i+1] for i in range(5)):
+        return "🔃 偵測到單跳路型（交錯重複）"
+
+    # 一廳兩房（類似交錯出現兩次同一方）
+    if last[-5:] in ['莊閒閒莊閒', '閒莊莊閒莊']:
+        return "🏠 偵測到一廳兩房路型"
+
+    return None
+
 def predict_next_bet(cards):
-    # 智能預測下一局方向（非單純比例）
     if len(cards) < 6:
         return random.choice(['莊', '閒'])
-
     last5 = cards[-5:]
     if last5.count('莊') >= 4:
         return '閒'
     if last5.count('閒') >= 4:
         return '莊'
-
     if len(cards) >= 4 and cards[-1] != cards[-2] != cards[-3] != cards[-4]:
         return '莊' if cards[-1] == '閒' else '閒'
-
     return '閒' if cards[-1] == '莊' else '莊'
 
 def calculate_confidence(cards, suggestion):
@@ -71,25 +86,6 @@ def calculate_win_rate(cards):
         'player_rate': round(player / total * 100, 1) if total else 0,
         'draw_rate': round(draw / total * 100, 1) if total else 0
     }
-
-def detect_streak(cards):
-    if len(cards) < 2:
-        return ""
-    streak_type = cards[0]
-    streak_len = 1
-    max_streak = 1
-    max_type = cards[0]
-    for i in range(1, len(cards)):
-        if cards[i] == cards[i - 1]:
-            streak_len += 1
-            if streak_len > max_streak:
-                max_streak = streak_len
-                max_type = cards[i]
-        else:
-            streak_len = 1
-    if max_streak >= 3:
-        return f"⚠️ 偵測到『{max_type}』連續 {max_streak} 次，請注意走勢變化"
-    return ""
 
 def calculate_hit_rate(cards):
     total = len(cards)
@@ -126,21 +122,28 @@ def handle_message(event):
         suggestion = predict_next_bet(cards)
         confidence = calculate_confidence(cards, suggestion)
         stats = calculate_win_rate(cards)
-        streak_note = detect_streak(cards)
+        pattern_note = detect_special_patterns(cards)
         hit_rate = calculate_hit_rate(cards)
 
-        summary = (
-            f"分析結果：\n"
-            f"莊:{stats['banker_rate']}%\n"
-            f"閒:{stats['player_rate']}%\n"
-            f"和:{stats['draw_rate']}%\n\n"
-            f"推薦：{suggestion}（信心 {confidence}%）"
-        )
-        if streak_note:
-            summary += f"\n{streak_note}"
+        confidence_color = "#00C300" if confidence >= 80 else "#FFA500" if confidence >= 60 else "#FF4444"
 
-        reply = TextSendMessage(
-            text=summary,
+        contents = [
+            {"type": "text", "text": "📊 百家樂分析結果", "weight": "bold", "size": "lg"},
+            {"type": "text", "text": f"莊：{stats['banker_rate']}% 閒：{stats['player_rate']}% 和：{stats['draw_rate']}%"},
+            {"type": "text", "text": f"命中率：{hit_rate}%"},
+            {"type": "text", "text": f"推薦：{suggestion}（信心 {confidence}%）", "weight": "bold", "color": confidence_color}
+        ]
+        if pattern_note:
+            contents.append({"type": "text", "text": pattern_note, "wrap": True, "color": "#FF4444"})
+
+        bubble = {
+            "type": "bubble",
+            "body": {"type": "box", "layout": "vertical", "spacing": "sm", "contents": contents}
+        }
+
+        reply = FlexSendMessage(
+            alt_text="百家樂分析結果",
+            contents=bubble,
             quick_reply=QuickReply(items=[
                 QuickReplyButton(action=MessageAction(label="莊", text="莊")),
                 QuickReplyButton(action=MessageAction(label="閒", text="閒")),
