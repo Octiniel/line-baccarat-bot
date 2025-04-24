@@ -90,8 +90,7 @@ def generate_record_flex(records):
     results = " → ".join(["✅" if r['hit'] else "❌" for r in records])
     profits = " → ".join([f"{'+100' if r['hit'] else '-100'}" for r in records])
     total_profit = sum([100 if r['hit'] else -100 for r in records])
-   hit_rate = round(100 * sum(1 for r in records if r['hit']) / len(records), 1) if records else 0
-
+    hit_rate = round(100 * sum(1 for r in records if r['hit']) / len(records), 1) if records else 0
     return {
         "type": "bubble",
         "body": {
