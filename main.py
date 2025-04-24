@@ -46,15 +46,11 @@ def detect_special_patterns(cards):
     return None
 
 def predict_next_bet(cards):
-    if len(cards) < 6:
+    if len(cards) < 3:
         return random.choice(['莊', '閒'])
-    last5 = cards[-5:]
-    if last5.count('莊') >= 4:
-        return '閒'
-    if last5.count('閒') >= 4:
-        return '莊'
-    if len(cards) >= 4 and cards[-1] != cards[-2] != cards[-3] != cards[-4]:
-        return '莊' if cards[-1] == '閒' else '閒'
+    last3 = cards[-3:]
+    if all(c == last3[0] for c in last3):
+        return last3[0]  # 跟龍邏輯：連續 3 次相同就跟龍
     return '閒' if cards[-1] == '莊' else '莊'
 
 def calculate_confidence(cards, suggestion):
@@ -142,9 +138,9 @@ def handle_message(event):
             alt_text="百家樂分析結果",
             contents=bubble,
             quick_reply=QuickReply(items=[
-                QuickReplyButton(action=MessageAction(label="莊", text="莊")),
-                QuickReplyButton(action=MessageAction(label="閒", text="閒")),
-                QuickReplyButton(action=MessageAction(label="和", text="和")),
+                QuickReplyButton(action=MessageAction(label="莊", text="莊"), image_url="https://via.placeholder.com/20/FF4444/FFFFFF?text=B"),
+                QuickReplyButton(action=MessageAction(label="閒", text="閒"), image_url="https://via.placeholder.com/20/0000FF/FFFFFF?text=P"),
+                QuickReplyButton(action=MessageAction(label="和", text="和"), image_url="https://via.placeholder.com/20/00C300/FFFFFF?text=T"),
                 QuickReplyButton(action=MessageAction(label="結束分析", text="結束分析"))
             ])
         )
