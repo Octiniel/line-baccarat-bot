@@ -153,47 +153,42 @@ def handle_message(event):
 
         suggestion_color = "#FF4444" if suggestion == "莊" else "#0000FF" if suggestion == "閒" else "#00C300"
 
-        contents = [
-            {"type": "text", "text": "📊 百家樂分析結果", "weight": "bold", "size": "lg"},
-            {"type": "text", "text": f"莊：{stats['banker_rate']}% 閒：{stats['player_rate']}% 和：{stats['draw_rate']}%"},
-            {"type": "text", "text": f"命中率：{hit_rate}%"},
-            {"type": "text", "text": f"推薦：{suggestion}（信心 {confidence}%）", "weight": "bold", "color": suggestion_color}
-        ]
-        if pattern_note:
-            contents.append({"type": "text", "text": pattern_note, "wrap": True, "color": "#FF4444"})
-
         bubble = {
-    "type": "bubble",
-    "body": {
-        "type": "box",
-        "layout": "vertical",
-        "spacing": "md",
-        "paddingAll": "lg",
-        "contents": [
-            {"type": "text", "text": "📊 百家樂分析結果", "weight": "bold", "size": "xl"},
-            {"type": "separator", "margin": "md"},
-            {"type": "box", "layout": "vertical", "spacing": "sm", "margin": "md", "contents": [
-                {"type": "text", "text": f"🏦 莊：{stats['banker_rate']}%", "size": "sm"},
-                {"type": "text", "text": f"🧑‍💼 閒：{stats['player_rate']}%", "size": "sm"},
-                {"type": "text", "text": f"🤝 和：{stats['draw_rate']}%", "size": "sm"},
-                {"type": "text", "text": f"🎯 命中率：{hit_rate}%", "size": "sm"}
-            ]},
-            {"type": "separator", "margin": "md"},
-            {"type": "text", "text": f"🔮 推薦下注：{suggestion}（信心 {confidence}%）", "weight": "bold", "color": suggestion_color, "size": "md", "margin": "md"}
-        ] + ([{"type": "text", "text": pattern_note, "wrap": True, "color": "#FF4444"}] if pattern_note else [])
-    }
-}
+            "type": "bubble",
+            "body": {
+                "type": "box",
+                "layout": "vertical",
+                "spacing": "md",
+                "paddingAll": "lg",
+                "contents": [
+                    {"type": "text", "text": "📊 百家樂分析結果", "weight": "bold", "size": "xl"},
+                    {"type": "separator", "margin": "md"},
+                    {"type": "box", "layout": "vertical", "spacing": "sm", "margin": "md", "contents": [
+                        {"type": "text", "text": f"🏦 莊：{stats['banker_rate']}%", "size": "sm"},
+                        {"type": "text", "text": f"🧑‍💼 閒：{stats['player_rate']}%", "size": "sm"},
+                        {"type": "text", "text": f"🤝 和：{stats['draw_rate']}%", "size": "sm"},
+                        {"type": "text", "text": f"🎯 命中率：{hit_rate}%", "size": "sm"}
+                    ]},
+                    {"type": "separator", "margin": "md"},
+                    {"type": "text", "text": f"🔮 推薦下注：{suggestion}（信心 {confidence}%）", "weight": "bold", "color": suggestion_color, "size": "md", "margin": "md"}
+                ] + ([{"type": "text", "text": pattern_note, "wrap": True, "color": "#FF4444"}] if pattern_note else [])
+            },
+            "footer": {
+                "type": "box",
+                "layout": "horizontal",
+                "spacing": "sm",
+                "contents": [
+                    {"type": "button", "style": "primary", "color": "#FF4444", "action": {"type": "message", "label": "莊", "text": "莊"}},
+                    {"type": "button", "style": "primary", "color": "#0000FF", "action": {"type": "message", "label": "閒", "text": "閒"}},
+                    {"type": "button", "style": "primary", "color": "#00C300", "action": {"type": "message", "label": "和", "text": "和"}},
+                    {"type": "button", "style": "primary", "color": "#444444", "action": {"type": "message", "label": "結束分析", "text": "結束分析"}}
+                ]
+            }
         }
 
         reply = FlexSendMessage(
             alt_text="百家樂分析結果",
-            contents=bubble,
-            quick_reply=QuickReply(items=[
-                QuickReplyButton(action=MessageAction(label="莊", text="莊")),
-                QuickReplyButton(action=MessageAction(label="閒", text="閒")),
-                QuickReplyButton(action=MessageAction(label="和", text="和")),
-                QuickReplyButton(action=MessageAction(label="結束分析", text="結束分析"))
-            ])
+            contents=bubble
         )
 
     line_bot_api.reply_message(event.reply_token, reply)
