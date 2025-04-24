@@ -34,15 +34,12 @@ def detect_special_patterns(cards):
 
     last = cards[-6:]
 
-    # 長龍判斷（連續同一方至少四次）
     if all(c == last[0] for c in last[-4:]):
         return f"🔁 偵測到長龍：{last[-1]} 連續 4 次以上"
 
-    # 單跳（交錯重複）
     if len(last) >= 6 and all(last[i] != last[i+1] for i in range(5)):
         return "🔃 偵測到單跳路型（交錯重複）"
 
-    # 一廳兩房（類似交錯出現兩次同一方）
     if last[-5:] in ['莊閒閒莊閒', '閒莊莊閒莊']:
         return "🏠 偵測到一廳兩房路型"
 
@@ -106,8 +103,6 @@ def handle_message(event):
     elif all(c in '莊閒和' for c in raw_input):
         cards = user_memory.get(user_id, '') + clean_input(raw_input)
         user_memory[user_id] = cards
-    elif raw_input == "重新分析":
-        cards = user_memory.get(user_id, '')
     elif raw_input == "結束分析":
         user_memory[user_id] = ''
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text="✅ 已結束分析，歡迎再次使用！"))
@@ -127,11 +122,13 @@ def handle_message(event):
 
         confidence_color = "#00C300" if confidence >= 80 else "#FFA500" if confidence >= 60 else "#FF4444"
 
+        suggestion_color = "#FF4444" if suggestion == "莊" else "#0000FF" if suggestion == "閒" else "#00C300"
+
         contents = [
             {"type": "text", "text": "📊 百家樂分析結果", "weight": "bold", "size": "lg"},
             {"type": "text", "text": f"莊：{stats['banker_rate']}% 閒：{stats['player_rate']}% 和：{stats['draw_rate']}%"},
             {"type": "text", "text": f"命中率：{hit_rate}%"},
-            {"type": "text", "text": f"推薦：{suggestion}（信心 {confidence}%）", "weight": "bold", "color": confidence_color}
+            {"type": "text", "text": f"推薦：{suggestion}（信心 {confidence}%）", "weight": "bold", "color": suggestion_color}
         ]
         if pattern_note:
             contents.append({"type": "text", "text": pattern_note, "wrap": True, "color": "#FF4444"})
@@ -147,7 +144,7 @@ def handle_message(event):
             quick_reply=QuickReply(items=[
                 QuickReplyButton(action=MessageAction(label="莊", text="莊")),
                 QuickReplyButton(action=MessageAction(label="閒", text="閒")),
-                QuickReplyButton(action=MessageAction(label="重新分析", text="重新分析")),
+                QuickReplyButton(action=MessageAction(label="和", text="和")),
                 QuickReplyButton(action=MessageAction(label="結束分析", text="結束分析"))
             ])
         )
