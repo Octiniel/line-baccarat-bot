@@ -1,1 +1,1 @@
-web: python main_with_first_record_fix.py
+web: python main_result_then_suggestion.py
