@@ -108,29 +108,33 @@ def handle_message(event):
     if not cards:
         reply = TextSendMessage(text="請輸入包含『莊』『閒』『和』的牌路，例如：莊閒莊莊閒")
     else:
+        cards = cards[-30:]  # ✅ 限制分析最近 30 局
         suggestion = predict_next_bet(cards)
         stats = calculate_win_rate(cards)
         profit = calculate_profit(cards)
         streak_note = detect_streak(cards)
         hit_rate = calculate_hit_rate(cards)
 
+        contents = [
+            {"type": "text", "text": "📊 百家樂分析結果", "weight": "bold", "size": "lg"},
+            {"type": "separator", "margin": "md"},
+            {"type": "text", "text": f"牌路：{cards}", "margin": "md"},
+            {"type": "text", "text": f"莊：{stats['banker']} 次（{stats['banker_rate']}%）", "margin": "sm"},
+            {"type": "text", "text": f"閒：{stats['player']} 次（{stats['player_rate']}%）"},
+            {"type": "text", "text": f"和：{stats['draw']} 次（{stats['draw_rate']}%）"},
+            {"type": "text", "text": f"🎯 命中率：{hit_rate}%"},
+            {"type": "text", "text": f"💰 累積獲利：{profit} 元", "margin": "md"},
+            {"type": "text", "text": f"✅ 建議下注：{suggestion}", "weight": "bold", "color": "#1DB446", "margin": "md"},
+        ]
+        if streak_note:
+            contents.append({"type": "text", "text": streak_note, "wrap": True, "color": "#FF5555", "margin": "md"})
+
         flex_message = {
             "type": "bubble",
             "body": {
                 "type": "box",
                 "layout": "vertical",
-                "contents": [
-                    {"type": "text", "text": "📊 百家樂分析結果", "weight": "bold", "size": "lg"},
-                    {"type": "separator", "margin": "md"},
-                    {"type": "text", "text": f"牌路：{cards}", "margin": "md"},
-                    {"type": "text", "text": f"莊：{stats['banker']} 次（{stats['banker_rate']}%）", "margin": "sm"},
-                    {"type": "text", "text": f"閒：{stats['player']} 次（{stats['player_rate']}%）"},
-                    {"type": "text", "text": f"和：{stats['draw']} 次（{stats['draw_rate']}%）"},
-                    {"type": "text", "text": f"🎯 命中率：{hit_rate}%"},
-                    {"type": "text", "text": f"💰 累積獲利：{profit} 元", "margin": "md"},
-                    {"type": "text", "text": f"✅ 建議下注：{suggestion}", "weight": "bold", "color": "#1DB446", "margin": "md"},
-                    {"type": "text", "text": streak_note, "wrap": True, "color": "#FF5555", "margin": "md"} if streak_note else {}
-                ]
+                "contents": contents
             },
             "footer": {
                 "type": "box",
