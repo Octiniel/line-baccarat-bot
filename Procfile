@@ -1,1 +1,1 @@
-web: python main.py
+web: python main_with_first_record_fix.py
