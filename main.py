@@ -169,12 +169,16 @@ def handle_message(event):
 
         # 記錄上一筆建議並比對實際結果
         last = user_memory['last_suggestion'].get(user_id)
-        if last:
-            user_memory['records'].setdefault(user_id, []).append({
-                'suggestion': last,
-                'hit': last == raw_input
-            })
-            user_memory['records'][user_id] = user_memory['records'][user_id][-5:]
+       if last and user_memory['records'].get(user_id) is not None and len(user_memory['records'][user_id]) > 0:
+    user_memory['records'].setdefault(user_id, []).append({
+        'suggestion': last,
+        'hit': last == raw_input
+    })
+elif last:
+    user_memory['records'].setdefault(user_id, [])
+
+
+
 
         # 更新新的預測
         suggestion = predict_next_bet(cards)
@@ -189,7 +193,25 @@ def handle_message(event):
             FlexSendMessage(alt_text="百家樂分析結果", contents=analysis_flex),
             FlexSendMessage(alt_text="下注紀錄", contents=record_flex)
         ])
-        return
+            line_bot_api.reply_message(event.reply_token, [
+           # ➕ 顯示簡潔紀錄結果
+    last_record = user_memory['records'][user_id][-1] if user_memory['records'][user_id] else None
+    if last_record:
+        last_result = raw_input
+        hit = last_record['hit']
+        total_profit = sum([100 if r['hit'] else -100 for r in user_memory['records'][user_id]])
+        if hit:
+            result_text = f"好耶！這局開「{last_result}」✅ 命中！"
+        else:
+            result_text = f"這局開「{last_result}」❌ 沒中～"
+        profit_text = f"累積獲利：{total_profit:+} 元"
+
+        line_bot_api.push_message(user_id, [
+            TextSendMessage(text=result_text),
+            TextSendMessage(text=profit_text)
+        ])
+
+    return
 
     # 其他無效指令回覆
     reply = TextSendMessage(text="請輸入包含『莊』『閒』『和』的牌路，例如：莊閒莊莊閒")
