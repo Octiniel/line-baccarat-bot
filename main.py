@@ -105,13 +105,11 @@ def handle_message(event):
         hit_rate = calculate_hit_rate(cards)
 
         summary = (
-            f"📊 百家樂分析結果\n"
-            f"牌路：{cards}\n"
-            f"莊：{stats['banker']} 次（{stats['banker_rate']}%）\n"
-            f"閒：{stats['player']} 次（{stats['player_rate']}%）\n"
-            f"和：{stats['draw']} 次（{stats['draw_rate']}%）\n"
-            f"🎯 命中率：{hit_rate}%\n"
-            f"✅ 建議下注：{suggestion}"
+            f"分析結果：\n"
+            f"莊:{stats['banker_rate']}%\n"
+            f"閒:{stats['player_rate']}%\n"
+            f"和:{stats['draw_rate']}%\n\n"
+            f"推薦：{suggestion}"
         )
         if streak_note:
             summary += f"\n{streak_note}"
