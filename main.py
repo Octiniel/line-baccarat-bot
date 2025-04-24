@@ -85,6 +85,32 @@ def generate_analysis_flex(cards, suggestion, confidence, hit_rate):
         }
     }
 
+def generate_record_flex(records):
+    suggested = " → ".join([r['suggestion'] for r in records])
+    results = " → ".join(["✅" if r['hit'] else "❌" for r in records])
+    profits = " → ".join([f"{'+100' if r['hit'] else '-100'}" for r in records])
+    total_profit = sum([100 if r['hit'] else -100 for r in records])
+    hit_rate = round(100 * sum(1 for r in records if r['hit']) / len(records), 1)
+
+    return {
+        "type": "bubble",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "md",
+            "contents": [
+                {"type": "text", "text": "🎲 最近紀錄", "weight": "bold", "size": "lg"},
+                {"type": "separator", "margin": "md"},
+                {"type": "text", "text": f"建議：{suggested}", "size": "sm"},
+                {"type": "text", "text": f"結果：{results}", "size": "sm"},
+                {"type": "text", "text": f"獲利：{profits}", "size": "sm"},
+                {"type": "separator", "margin": "md"},
+                {"type": "text", "text": f"💰 總損益：{total_profit}", "weight": "bold", "color": "#00C851"},
+                {"type": "text", "text": f"🎯 命中率：{hit_rate}%", "weight": "bold"}
+            ]
+        }
+    }
+
 @app.route("/callback", methods=['POST'])
 def callback():
     signature = request.headers['X-Line-Signature']
@@ -114,7 +140,7 @@ def handle_message(event):
                             {"type": "button", "action": {"type": "message", "label": "莊", "text": "莊"}, "style": "primary", "color": "#FF4444"},
                             {"type": "button", "action": {"type": "message", "label": "閒", "text": "閒"}, "style": "primary", "color": "#0000FF"},
                             {"type": "button", "action": {"type": "message", "label": "和", "text": "和"}, "style": "primary", "color": "#00C300"},
-                            {"type": "button", "action": {"type": "message", "label": "顯示紀錄", "text": "顯示紀錄"}, "style": "secondary", "color": "#AAAAAA"}
+                            {"type": "button", "action": {"type": "message", "label": "清除紀錄", "text": "清除紀錄"}, "style": "secondary", "color": "#AAAAAA"}
                         ]
                     }
                 }
@@ -134,39 +160,6 @@ def handle_message(event):
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text="✅ 已清除下注紀錄"))
         return
 
-    if raw_input == "顯示紀錄":
-        records = user_memory['records'].get(user_id, [])
-        if not records:
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="尚無紀錄可顯示"))
-            return
-
-        suggested = " → ".join([r['suggestion'] for r in records])
-        results = " → ".join(["✅" if r['hit'] else "❌" for r in records])
-        profits = " → ".join([f"{'+100' if r['hit'] else '-100'}" for r in records])
-        total_profit = sum([100 if r['hit'] else -100 for r in records])
-        hit_rate = round(100 * sum(1 for r in records if r['hit']) / len(records), 1)
-
-        flex_msg = {
-            "type": "bubble",
-            "body": {
-                "type": "box",
-                "layout": "vertical",
-                "spacing": "md",
-                "contents": [
-                    {"type": "text", "text": "🎲 最近紀錄", "weight": "bold", "size": "lg"},
-                    {"type": "separator", "margin": "md"},
-                    {"type": "text", "text": f"建議：{suggested}", "size": "sm"},
-                    {"type": "text", "text": f"結果：{results}", "size": "sm"},
-                    {"type": "text", "text": f"獲利：{profits}", "size": "sm"},
-                    {"type": "separator", "margin": "md"},
-                    {"type": "text", "text": f"💰 總損益：{total_profit}", "weight": "bold", "color": "#00C851"},
-                    {"type": "text", "text": f"🎯 命中率：{hit_rate}%", "weight": "bold"}
-                ]
-            }
-        }
-        line_bot_api.reply_message(event.reply_token, FlexSendMessage(alt_text="下注紀錄", contents=flex_msg))
-        return
-
     if all(c in '莊閒和' for c in raw_input):
         cards = user_memory.get(user_id, '') + clean_input(raw_input)
         user_memory[user_id] = cards
@@ -175,21 +168,26 @@ def handle_message(event):
 
     if not cards:
         reply = TextSendMessage(text="請輸入包含『莊』『閒』『和』的牌路，例如：莊閒莊莊閒")
-    else:
-        suggestion = predict_next_bet(cards)
-        confidence = calculate_confidence(cards, suggestion)
-        hit_rate = calculate_hit_rate(cards)
+        line_bot_api.reply_message(event.reply_token, reply)
+        return
 
-        user_memory['records'].setdefault(user_id, []).append({
-            'suggestion': suggestion,
-            'hit': suggestion == cards[-1]
-        })
-        user_memory['records'][user_id] = user_memory['records'][user_id][-5:]
+    suggestion = predict_next_bet(cards)
+    confidence = calculate_confidence(cards, suggestion)
+    hit_rate = calculate_hit_rate(cards)
 
-        bubble = generate_analysis_flex(cards, suggestion, confidence, hit_rate)
-        reply = FlexSendMessage(alt_text="百家樂分析結果", contents=bubble)
+    user_memory['records'].setdefault(user_id, []).append({
+        'suggestion': suggestion,
+        'hit': suggestion == cards[-1]
+    })
+    user_memory['records'][user_id] = user_memory['records'][user_id][-5:]
 
-    line_bot_api.reply_message(event.reply_token, reply)
+    analysis_flex = generate_analysis_flex(cards, suggestion, confidence, hit_rate)
+    record_flex = generate_record_flex(user_memory['records'][user_id])
+
+    line_bot_api.reply_message(event.reply_token, [
+        FlexSendMessage(alt_text="百家樂分析結果", contents=analysis_flex),
+        FlexSendMessage(alt_text="下注紀錄", contents=record_flex)
+    ])
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
