@@ -176,3 +176,54 @@ def handle_message(event):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
+
+
+# 下注紀錄處理
+records = {}
+
+@handler.add(MessageEvent, message=TextMessage)
+def extended_handle_message(event):
+    user_id = event.source.user_id
+    raw_input = event.message.text.strip()
+
+    if raw_input == "顯示紀錄":
+        user_records = records.get(user_id, [])
+        if not user_records:
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="尚無紀錄可顯示"))
+            return
+
+        suggested = " → ".join([r['suggestion'] for r in user_records])
+        results = " → ".join(["✅" if r['hit'] else "❌" for r in user_records])
+        profits = " → ".join([f"{'+100' if r['hit'] else '-100'}" for r in user_records])
+        total_profit = sum([100 if r['hit'] else -100 for r in user_records])
+        hit_rate = round(100 * sum(1 for r in user_records if r['hit']) / len(user_records), 1)
+
+        flex_record = {
+            "type": "bubble",
+            "body": {
+                "type": "box",
+                "layout": "vertical",
+                "spacing": "md",
+                "contents": [
+                    {"type": "text", "text": "🎲 最近紀錄", "weight": "bold", "size": "lg"},
+                    {"type": "separator", "margin": "md"},
+                    {"type": "text", "text": f"建議：{suggested}", "size": "sm"},
+                    {"type": "text", "text": f"結果：{results}", "size": "sm"},
+                    {"type": "text", "text": f"獲利：{profits}", "size": "sm"},
+                    {"type": "separator", "margin": "md"},
+                    {"type": "text", "text": f"💰 總損益：{total_profit}", "weight": "bold", "color": "#00C851"},
+                    {"type": "text", "text": f"🎯 命中率：{hit_rate}%", "weight": "bold"}
+                ]
+            }
+        }
+
+        line_bot_api.reply_message(event.reply_token, FlexSendMessage(alt_text="下注紀錄", contents=flex_record))
+        return
+
+    if all(c in '莊閒和' for c in raw_input):
+        cards = user_memory.get(user_id, '') + clean_input(raw_input)
+        user_memory[user_id] = cards
+        suggestion = predict_next_bet(cards)
+        hit = suggestion == raw_input[-1]
+        records.setdefault(user_id, []).append({'suggestion': suggestion, 'hit': hit})
+        records[user_id] = records[user_id][-5:]
