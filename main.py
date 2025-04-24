@@ -1,4 +1,3 @@
-
 from flask import Flask, request
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
@@ -14,16 +13,6 @@ handler = WebhookHandler(os.environ.get("CHANNEL_SECRET"))
 
 user_memory = {}
 user_memory['records'] = {}
-
-@app.route("/callback", methods=['POST'])
-def callback():
-    signature = request.headers['X-Line-Signature']
-    body = request.get_data(as_text=True)
-    try:
-        handler.handle(body, signature)
-    except InvalidSignatureError:
-        return 'Invalid signature', 400
-    return 'OK', 200
 
 def clean_input(text):
     return ''.join(c for c in text if c in '莊閒和')
@@ -52,10 +41,59 @@ def calculate_confidence(cards, suggestion):
 def calculate_hit_rate(cards):
     total = len(cards)
     correct = 0
-    for i in range(1, len(cards)):
+    for i in range(1, total):
         if cards[i] != cards[i - 1] and cards[i] in '莊閒':
             correct += 1
     return round(correct / (total - 1) * 100, 1) if total > 1 else 0
+
+def generate_analysis_flex(cards, suggestion, confidence, hit_rate):
+    count_z = cards.count('莊')
+    count_x = cards.count('閒')
+    count_h = cards.count('和')
+    total = len(cards)
+    percent = lambda c: round(c / total * 100, 1) if total > 0 else 0
+
+    color_map = {"莊": "#FF4444", "閒": "#0000FF", "和": "#00C300"}
+
+    return {
+        "type": "bubble",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "md",
+            "paddingAll": "lg",
+            "contents": [
+                {"type": "text", "text": "📊 百家樂分析結果", "weight": "bold", "size": "lg"},
+                {"type": "separator"},
+                {"type": "text", "text": f"莊：{percent(count_z)}%", "size": "sm"},
+                {"type": "text", "text": f"閒：{percent(count_x)}%", "size": "sm"},
+                {"type": "text", "text": f"和：{percent(count_h)}%", "size": "sm"},
+                {"type": "text", "text": f"🎯 命中率：{hit_rate}%", "size": "sm"},
+                {"type": "separator"},
+                {"type": "text", "text": f"推薦下注：{suggestion}（信心 {confidence}%）", "weight": "bold", "color": color_map[suggestion], "size": "md"},
+                {
+                    "type": "box",
+                    "layout": "horizontal",
+                    "margin": "md",
+                    "contents": [
+                        {"type": "button", "action": {"type": "message", "label": "莊", "text": "莊"}, "color": "#FF4444", "style": "primary"},
+                        {"type": "button", "action": {"type": "message", "label": "閒", "text": "閒"}, "color": "#0000FF", "style": "primary"},
+                        {"type": "button", "action": {"type": "message", "label": "和", "text": "和"}, "color": "#00C300", "style": "primary"}
+                    ]
+                }
+            ]
+        }
+    }
+
+@app.route("/callback", methods=['POST'])
+def callback():
+    signature = request.headers['X-Line-Signature']
+    body = request.get_data(as_text=True)
+    try:
+        handler.handle(body, signature)
+    except InvalidSignatureError:
+        return 'Invalid signature', 400
+    return 'OK', 200
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
@@ -73,30 +111,10 @@ def handle_message(event):
                         "layout": "horizontal",
                         "spacing": "md",
                         "contents": [
-                            {
-                                "type": "button",
-                                "action": {"type": "message", "label": "莊", "text": "莊"},
-                                "style": "primary",
-                                "color": "#FF4444"
-                            },
-                            {
-                                "type": "button",
-                                "action": {"type": "message", "label": "閒", "text": "閒"},
-                                "style": "primary",
-                                "color": "#0000FF"
-                            },
-                            {
-                                "type": "button",
-                                "action": {"type": "message", "label": "和", "text": "和"},
-                                "style": "primary",
-                                "color": "#00C300"
-                            },
-                            {
-                                "type": "button",
-                                "action": {"type": "message", "label": "顯示紀錄", "text": "顯示紀錄"},
-                                "style": "secondary",
-                                "color": "#AAAAAA"
-                            }
+                            {"type": "button", "action": {"type": "message", "label": "莊", "text": "莊"}, "style": "primary", "color": "#FF4444"},
+                            {"type": "button", "action": {"type": "message", "label": "閒", "text": "閒"}, "style": "primary", "color": "#0000FF"},
+                            {"type": "button", "action": {"type": "message", "label": "和", "text": "和"}, "style": "primary", "color": "#00C300"},
+                            {"type": "button", "action": {"type": "message", "label": "顯示紀錄", "text": "顯示紀錄"}, "style": "secondary", "color": "#AAAAAA"}
                         ]
                     }
                 }
@@ -168,25 +186,7 @@ def handle_message(event):
         })
         user_memory['records'][user_id] = user_memory['records'][user_id][-5:]
 
-        suggestion_color = "#FF4444" if suggestion == "莊" else "#0000FF" if suggestion == "閒" else "#00C300"
-
-        bubble = {
-            "type": "bubble",
-            "body": {
-                "type": "box",
-                "layout": "vertical",
-                "spacing": "md",
-                "paddingAll": "lg",
-                "contents": [
-                    {"type": "text", "text": "📊 百家樂分析結果", "weight": "bold", "size": "xl"},
-                    {"type": "separator", "margin": "md"},
-                    {"type": "text", "text": f"🎯 命中率：{hit_rate}%", "size": "sm"},
-                    {"type": "separator", "margin": "md"},
-                    {"type": "text", "text": f"🔮 推薦下注：{suggestion}（信心 {confidence}%）", "weight": "bold", "color": suggestion_color}
-                ]
-            }
-        }
-
+        bubble = generate_analysis_flex(cards, suggestion, confidence, hit_rate)
         reply = FlexSendMessage(alt_text="百家樂分析結果", contents=bubble)
 
     line_bot_api.reply_message(event.reply_token, reply)
