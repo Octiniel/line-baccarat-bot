@@ -2,7 +2,7 @@ from flask import Flask, request
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import (
-    MessageEvent, TextMessage, TextSendMessage
+    MessageEvent, TextMessage, TextSendMessage, QuickReply, QuickReplyButton, MessageAction
 )
 import os
 import random
@@ -92,6 +92,12 @@ def handle_message(event):
     elif all(c in '莊閒和' for c in raw_input):
         cards = user_memory.get(user_id, '') + clean_input(raw_input)
         user_memory[user_id] = cards
+    elif raw_input == "重新分析":
+        cards = user_memory.get(user_id, '')
+    elif raw_input == "結束分析":
+        user_memory[user_id] = ''
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="✅ 已結束分析，歡迎再次使用！"))
+        return
     else:
         cards = ''
 
@@ -114,7 +120,15 @@ def handle_message(event):
         if streak_note:
             summary += f"\n{streak_note}"
 
-        reply = TextSendMessage(text=summary)
+        reply = TextSendMessage(
+            text=summary,
+            quick_reply=QuickReply(items=[
+                QuickReplyButton(action=MessageAction(label="莊", text="莊")),
+                QuickReplyButton(action=MessageAction(label="閒", text="閒")),
+                QuickReplyButton(action=MessageAction(label="重新分析", text="重新分析")),
+                QuickReplyButton(action=MessageAction(label="結束分析", text="結束分析"))
+            ])
+        )
 
     line_bot_api.reply_message(event.reply_token, reply)
 
