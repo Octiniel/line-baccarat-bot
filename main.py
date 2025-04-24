@@ -24,11 +24,9 @@ def callback():
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
     user_text = event.message.text.strip()
-    reply = TextSendMessage(text=f"你傳了：{user_text}")
+    reply = TextSendMessage(text=f"你說了：{user_text}")
     line_bot_api.reply_message(event.reply_token, reply)
 
 if __name__ == "__main__":
-    if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
-
