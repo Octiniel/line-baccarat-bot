@@ -116,8 +116,6 @@ def handle_message(event):
         pattern_note = detect_special_patterns(cards)
         hit_rate = calculate_hit_rate(cards)
 
-        confidence_color = "#00C300" if confidence >= 80 else "#FFA500" if confidence >= 60 else "#FF4444"
-
         suggestion_color = "#FF4444" if suggestion == "莊" else "#0000FF" if suggestion == "閒" else "#00C300"
 
         contents = [
@@ -138,9 +136,9 @@ def handle_message(event):
             alt_text="百家樂分析結果",
             contents=bubble,
             quick_reply=QuickReply(items=[
-                QuickReplyButton(action=MessageAction(label="莊", text="莊"), image_url="https://via.placeholder.com/20/FF4444/FFFFFF?text=B"),
-                QuickReplyButton(action=MessageAction(label="閒", text="閒"), image_url="https://via.placeholder.com/20/0000FF/FFFFFF?text=P"),
-                QuickReplyButton(action=MessageAction(label="和", text="和"), image_url="https://via.placeholder.com/20/00C300/FFFFFF?text=T"),
+                QuickReplyButton(action=MessageAction(label="莊", text="莊")),
+                QuickReplyButton(action=MessageAction(label="閒", text="閒")),
+                QuickReplyButton(action=MessageAction(label="和", text="和")),
                 QuickReplyButton(action=MessageAction(label="結束分析", text="結束分析"))
             ])
         )
