@@ -96,13 +96,14 @@ def handle_message(event):
     user_id = event.source.user_id
     raw_input = event.message.text.strip()
 
-    # ✅ 支援「接續」指令
+    # ✅ 支援「接續」指令與逐字輸入牌路追加
     if raw_input == "接續":
         cards = user_memory.get(user_id, '')
+    elif all(c in '莊閒和' for c in raw_input):
+        cards = user_memory.get(user_id, '') + clean_input(raw_input)
+        user_memory[user_id] = cards
     else:
-        cards = clean_input(raw_input)
-        if cards:
-            user_memory[user_id] = cards  # 記住這次的內容
+        cards = ''
 
     if not cards:
         reply = TextSendMessage(text="請輸入包含『莊』『閒』『和』的牌路，例如：莊閒莊莊閒")
