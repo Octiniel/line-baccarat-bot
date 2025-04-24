@@ -163,8 +163,26 @@ def handle_message(event):
             contents.append({"type": "text", "text": pattern_note, "wrap": True, "color": "#FF4444"})
 
         bubble = {
-            "type": "bubble",
-            "body": {"type": "box", "layout": "vertical", "spacing": "sm", "contents": contents}
+    "type": "bubble",
+    "body": {
+        "type": "box",
+        "layout": "vertical",
+        "spacing": "md",
+        "paddingAll": "lg",
+        "contents": [
+            {"type": "text", "text": "📊 百家樂分析結果", "weight": "bold", "size": "xl"},
+            {"type": "separator", "margin": "md"},
+            {"type": "box", "layout": "vertical", "spacing": "sm", "margin": "md", "contents": [
+                {"type": "text", "text": f"🏦 莊：{stats['banker_rate']}%", "size": "sm"},
+                {"type": "text", "text": f"🧑‍💼 閒：{stats['player_rate']}%", "size": "sm"},
+                {"type": "text", "text": f"🤝 和：{stats['draw_rate']}%", "size": "sm"},
+                {"type": "text", "text": f"🎯 命中率：{hit_rate}%", "size": "sm"}
+            ]},
+            {"type": "separator", "margin": "md"},
+            {"type": "text", "text": f"🔮 推薦下注：{suggestion}（信心 {confidence}%）", "weight": "bold", "color": suggestion_color, "size": "md", "margin": "md"}
+        ] + ([{"type": "text", "text": pattern_note, "wrap": True, "color": "#FF4444"}] if pattern_note else [])
+    }
+}
         }
 
         reply = FlexSendMessage(
