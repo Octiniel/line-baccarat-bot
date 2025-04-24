@@ -1,3 +1,4 @@
+
 from flask import Flask, request
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
@@ -13,7 +14,7 @@ handler = WebhookHandler(os.environ.get("CHANNEL_SECRET"))
 
 user_memory = {}
 user_memory['records'] = {}
-user_memory['last_suggestion'] = {}  # 新增記錄上一筆建議
+user_memory['last_suggestion'] = {}
 
 def clean_input(text):
     return ''.join(c for c in text if c in '莊閒和')
@@ -86,32 +87,6 @@ def generate_analysis_flex(cards, suggestion, confidence, hit_rate):
         }
     }
 
-def generate_record_flex(records):
-    suggested = " → ".join([r['suggestion'] for r in records])
-    results = " → ".join(["✅" if r['hit'] else "❌" for r in records])
-    profits = " → ".join([f"{'+100' if r['hit'] else '-100'}" for r in records])
-    total_profit = sum([100 if r['hit'] else -100 for r in records])
-    hit_rate = round(100 * sum(1 for r in records if r['hit']) / len(records), 1)
-
-    return {
-        "type": "bubble",
-        "body": {
-            "type": "box",
-            "layout": "vertical",
-            "spacing": "md",
-            "contents": [
-                {"type": "text", "text": "🎲 最近紀錄", "weight": "bold", "size": "lg"},
-                {"type": "separator", "margin": "md"},
-                {"type": "text", "text": f"建議：{suggested}", "size": "sm"},
-                {"type": "text", "text": f"結果：{results}", "size": "sm"},
-                {"type": "text", "text": f"獲利：{profits}", "size": "sm"},
-                {"type": "separator", "margin": "md"},
-                {"type": "text", "text": f"💰 總損益：{total_profit}", "weight": "bold", "color": "#00C851"},
-                {"type": "text", "text": f"🎯 命中率：{hit_rate}%", "weight": "bold"}
-            ]
-        }
-    }
-
 @app.route("/callback", methods=['POST'])
 def callback():
     signature = request.headers['X-Line-Signature']
@@ -126,29 +101,6 @@ def callback():
 def handle_message(event):
     user_id = event.source.user_id
     raw_input = event.message.text.strip()
-
-    if raw_input == "選單":
-        carousel = {
-            "type": "carousel",
-            "contents": [
-                {
-                    "type": "bubble",
-                    "body": {
-                        "type": "box",
-                        "layout": "horizontal",
-                        "spacing": "md",
-                        "contents": [
-                            {"type": "button", "action": {"type": "message", "label": "莊", "text": "莊"}, "style": "primary", "color": "#FF4444"},
-                            {"type": "button", "action": {"type": "message", "label": "閒", "text": "閒"}, "style": "primary", "color": "#0000FF"},
-                            {"type": "button", "action": {"type": "message", "label": "和", "text": "和"}, "style": "primary", "color": "#00C300"},
-                            {"type": "button", "action": {"type": "message", "label": "清除紀錄", "text": "清除紀錄"}, "style": "secondary", "color": "#AAAAAA"}
-                        ]
-                    }
-                }
-            ]
-        }
-        line_bot_api.reply_message(event.reply_token, FlexSendMessage(alt_text="功能選單", contents=carousel))
-        return
 
     if raw_input in ["下課", "結束分析"]:
         user_memory[user_id] = ''
@@ -167,53 +119,41 @@ def handle_message(event):
         cards = user_memory.get(user_id, '') + clean_input(raw_input)
         user_memory[user_id] = cards
 
-        # 記錄上一筆建議並比對實際結果
         last = user_memory['last_suggestion'].get(user_id)
-       if last and user_memory['records'].get(user_id) is not None and len(user_memory['records'][user_id]) > 0:
-    user_memory['records'].setdefault(user_id, []).append({
-        'suggestion': last,
-        'hit': last == raw_input
-    })
-elif last:
-    user_memory['records'].setdefault(user_id, [])
+        if last and user_memory['records'].get(user_id) is not None and len(user_memory['records'][user_id]) > 0:
+            user_memory['records'].setdefault(user_id, []).append({
+                'suggestion': last,
+                'hit': last == raw_input
+            })
+        elif last:
+            user_memory['records'].setdefault(user_id, [])
 
-
-
-
-        # 更新新的預測
         suggestion = predict_next_bet(cards)
         confidence = calculate_confidence(cards, suggestion)
         hit_rate = calculate_hit_rate(cards)
         user_memory['last_suggestion'][user_id] = suggestion
 
         analysis_flex = generate_analysis_flex(cards, suggestion, confidence, hit_rate)
-        record_flex = generate_record_flex(user_memory['records'][user_id])
-
         line_bot_api.reply_message(event.reply_token, [
-            FlexSendMessage(alt_text="百家樂分析結果", contents=analysis_flex),
-            FlexSendMessage(alt_text="下注紀錄", contents=record_flex)
-        ])
-            line_bot_api.reply_message(event.reply_token, [
-           # ➕ 顯示簡潔紀錄結果
-    last_record = user_memory['records'][user_id][-1] if user_memory['records'][user_id] else None
-    if last_record:
-        last_result = raw_input
-        hit = last_record['hit']
-        total_profit = sum([100 if r['hit'] else -100 for r in user_memory['records'][user_id]])
-        if hit:
-            result_text = f"好耶！這局開「{last_result}」✅ 命中！"
-        else:
-            result_text = f"這局開「{last_result}」❌ 沒中～"
-        profit_text = f"累積獲利：{total_profit:+} 元"
-
-        line_bot_api.push_message(user_id, [
-            TextSendMessage(text=result_text),
-            TextSendMessage(text=profit_text)
+            FlexSendMessage(alt_text="百家樂分析結果", contents=analysis_flex)
         ])
 
-    return
+        last_record = user_memory['records'][user_id][-1] if user_memory['records'][user_id] else None
+        if last_record:
+            last_result = raw_input
+            hit = last_record['hit']
+            total_profit = sum([100 if r['hit'] else -100 for r in user_memory['records'][user_id]])
+            if hit:
+                result_text = f"好耶！這局開「{last_result}」✅ 命中！"
+            else:
+                result_text = f"這局開「{last_result}」❌ 沒中～"
+            profit_text = f"累積獲利：{total_profit:+} 元"
+            line_bot_api.push_message(user_id, [
+                TextSendMessage(text=result_text),
+                TextSendMessage(text=profit_text)
+            ])
+        return
 
-    # 其他無效指令回覆
     reply = TextSendMessage(text="請輸入包含『莊』『閒』『和』的牌路，例如：莊閒莊莊閒")
     line_bot_api.reply_message(event.reply_token, reply)
 
