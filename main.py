@@ -54,13 +54,15 @@ def calculate_win_rate(cards):
 
 def calculate_profit(cards, unit=100):
     profit = 0
-    for outcome in cards:
-        if outcome == '莊':
-            profit += int(unit * 0.95)
-        elif outcome == '閒':
-            profit += unit
-        elif outcome == '和':
-            profit += 0
+    for i in range(1, len(cards)):
+        prev_cards = cards[:i]
+        suggested = predict_next_bet(prev_cards)
+        actual = cards[i]
+        if actual in ['莊', '閒'] and suggested == actual:
+            if actual == '莊':
+                profit += int(unit * 0.95)
+            elif actual == '閒':
+                profit += unit
     return profit
 
 def detect_streak(cards):
