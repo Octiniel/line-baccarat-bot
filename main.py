@@ -43,14 +43,49 @@ def detect_special_patterns(cards):
     if last[-5:] in ['莊閒閒莊閒', '閒莊莊閒莊']:
         return "🏠 偵測到一廳兩房路型"
 
+    if last[-6:] in ['莊閒閒莊莊閒', '閒莊莊閒閒莊']:
+        return "🏠 偵測到一莊兩閒或一閒兩莊路型"
+
+    if len(last) >= 4 and (last[-4:] == '莊閒莊閒' or last[-4:] == '閒莊閒莊'):
+        return "🧿 偵測到大路單跳路型"
+
+    if cards[-8:-4] == ['莊']*4 and cards[-4:] == ['莊閒莊閒']:
+        return "🔄 偵測到長龍轉單跳（莊）"
+    if cards[-8:-4] == ['閒']*4 and cards[-4:] == ['閒莊閒莊']:
+        return "🔄 偵測到長龍轉單跳（閒）"
+
+    if len(last) >= 6 and last[0] == last[2] == last[4] and last[1] == last[3] == last[5]:
+        if last[0] == '莊':
+            return "⛳ 偵測到差莊跳路型"
+        elif last[0] == '閒':
+            return "⛳ 偵測到差閒跳路型"
+
+    if all(last.count(x) >= 2 for x in '莊閒'):
+        return "📍 偵測到排排連路型"
+
     return None
 
 def predict_next_bet(cards):
     if len(cards) < 3:
         return random.choice(['莊', '閒'])
+
     last3 = cards[-3:]
     if all(c == last3[0] for c in last3):
-        return last3[0]  # 跟龍邏輯：連續 3 次相同就跟龍
+        return last3[0]  # 跟龍邏輯
+
+    last6 = cards[-6:]
+    if all(c == last6[0] for c in last6[-4:]):
+        return last6[0]  # 長龍
+
+    if len(last6) >= 6 and all(last6[i] != last6[i+1] for i in range(5)):
+        return cards[-1]  # 單跳：建議繼續交錯
+
+    if last6[-5:] in ['莊閒閒莊閒', '閒莊莊閒莊']:
+        return '閒' if cards[-1] == '莊' else '莊'  # 一廳兩房
+
+    if last6[-6:] in ['莊閒閒莊莊閒', '閒莊莊閒閒莊']:
+        return '和'  # 一莊兩閒或一閒兩莊時可考慮和局
+
     return '閒' if cards[-1] == '莊' else '莊'
 
 def calculate_confidence(cards, suggestion):
