@@ -8,6 +8,11 @@ app = Flask(__name__)
 line_bot_api = LineBotApi(os.environ.get("CHANNEL_ACCESS_TOKEN"))
 handler = WebhookHandler(os.environ.get("CHANNEL_SECRET"))
 
+# 🧾 啟用序號機制
+valid_activation_codes = {"VIA-BJ001"}
+activated_users = set()
+
+# 使用者記憶
 user_memory = {'records': {}, 'last_suggestion': {}, 'cards': {}, 'settings': {}}
 
 def clean_input(text):
@@ -63,7 +68,7 @@ def generate_analysis_flex(cards, suggestion, confidence, hit_rate, logic_mode):
 
 @app.route("/", methods=["GET"])
 def home():
-    return "✅ 百家樂 LINE 機器人已部署成功！請透過 LINE 對話啟用。"
+    return "✅ 百家樂 LINE 機器人已部署成功！請輸入啟用序號以使用功能"
 
 @app.route("/ping", methods=["GET"])
 def ping():
@@ -84,21 +89,36 @@ def handle_message(event):
     user_id = event.source.user_id
     raw_input = event.message.text.strip()
 
-    # 初始化設定
+    # ✅ 啟用序號處理
+    if raw_input.startswith("序號：") or raw_input.startswith("序號:"):
+        code = raw_input.replace("序號：", "").replace("序號:", "").strip()
+        if code in valid_activation_codes:
+            activated_users.add(user_id)
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="✅ 序號正確，功能已解鎖"))
+        else:
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 無效的序號，請確認後重新輸入"))
+        return
+
+    # 🚫 尚未啟用的使用者無法使用其他功能
+    if user_id not in activated_users:
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(
+            text="🔒 尚未啟用，請輸入序號才能使用機器人功能\n範例：序號：VIA-BJ001"
+        ))
+        return
+
+    # 初始化邏輯模式與資料結構
     user_memory['settings'].setdefault(user_id, {"logic": "正常邏輯"})
     user_memory.setdefault('cards', {}).setdefault(user_id, "")
     user_memory.setdefault('records', {}).setdefault(user_id, [])
 
-    # ✅ 模式切換處理（支援簡寫與冒號）
+    # 模式切換
     if raw_input in ["正常邏輯", "反邏輯"] or raw_input.startswith("設定模式：") or raw_input.startswith("設定模式:"):
         mode = raw_input.replace("設定模式：", "").replace("設定模式:", "")
         if mode in ["正常邏輯", "反邏輯"]:
             user_memory['settings'][user_id]["logic"] = mode
-            print(f"目前 {user_id} 的下注邏輯模式：{mode}")  # 可選：console log
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"✅ 已切換為「{mode}」模式"))
-            return
+        return
 
-    # 指令處理
     if raw_input in ["下課", "結束分析"]:
         user_memory['cards'][user_id] = ""
         user_memory['records'][user_id] = []
@@ -128,7 +148,7 @@ def handle_message(event):
 
         suggestion = predict_next_bet(cards)
 
-        # 🧠 根據邏輯模式反轉 suggestion
+        # 反邏輯處理
         logic_mode = user_memory['settings'][user_id]["logic"]
         if logic_mode == "反邏輯":
             suggestion = "莊" if suggestion == "閒" else "閒"
@@ -152,9 +172,8 @@ def handle_message(event):
         line_bot_api.reply_message(event.reply_token, messages)
         return
 
-    # 非法輸入提醒
     line_bot_api.reply_message(event.reply_token, TextSendMessage(
-        text="請輸入包含『莊』『閒』『和』的牌路，例如：莊閒莊莊閒\n也可輸入：反邏輯 / 正常邏輯 切換模式"
+        text="請輸入包含『莊』『閒』『和』的牌路，例如：莊閒莊莊閒\n或輸入：反邏輯 / 正常邏輯 切換模式"
     ))
 
 if __name__ == "__main__":
