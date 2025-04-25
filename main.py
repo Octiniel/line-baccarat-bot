@@ -91,10 +91,8 @@ def handle_message(event):
         return
 
     if all(c in "莊閒和" for c in raw_input):
-        if user_id not in user_memory['cards']:
-            user_memory['cards'][user_id] = ""
-        if user_id not in user_memory['records']:
-            user_memory['records'][user_id] = []
+        user_memory.setdefault('cards', {}).setdefault(user_id, "")
+        user_memory.setdefault('records', {}).setdefault(user_id, [])
 
         if raw_input != "和":
             user_memory['cards'][user_id] += clean_input(raw_input)
@@ -102,31 +100,36 @@ def handle_message(event):
         cards = user_memory['cards'][user_id]
         last = user_memory['last_suggestion'].get(user_id)
 
-        # 避免第一筆記錄就進行命中判定
-        if last and raw_input != "和" and len(user_memory['records'][user_id]) >= 1:
+        # 記錄命中紀錄（避開第一局或和局）
+        if last and raw_input != "和":
             user_memory['records'][user_id].append({
                 "suggestion": last,
                 "hit": last == raw_input
             })
 
+        # 新的預測
         suggestion = predict_next_bet(cards)
         confidence = calculate_confidence(cards, suggestion)
         hit_rate = calculate_hit_rate(cards)
         user_memory['last_suggestion'][user_id] = suggestion
         analysis_flex = generate_analysis_flex(cards, suggestion, confidence, hit_rate)
 
+        # 準備回應訊息
         messages = []
-        if raw_input != "和" and len(user_memory['records'][user_id]) >= 1:
+
+        if raw_input != "和" and user_memory['records'][user_id]:
             last_record = user_memory['records'][user_id][-1]
             result_text = f"好耶！這局開「{raw_input}」✅ 命中！" if last_record['hit'] else f"這局開「{raw_input}」❌ 沒中～"
             total_profit = sum([100 if r['hit'] else -100 for r in user_memory['records'][user_id]])
             profit_text = f"累積獲利：{total_profit:+} 元"
-            messages.extend([TextSendMessage(text=result_text), TextSendMessage(text=profit_text)])
+            messages.append(TextSendMessage(text=result_text))
+            messages.append(TextSendMessage(text=profit_text))
 
         messages.append(FlexSendMessage(alt_text="百家樂分析結果", contents=analysis_flex))
         line_bot_api.reply_message(event.reply_token, messages)
         return
 
+    # 非法輸入提醒
     reply = TextSendMessage(text="請輸入包含『莊』『閒』『和』的牌路，例如：莊閒莊莊閒")
     line_bot_api.reply_message(event.reply_token, reply)
 
