@@ -89,11 +89,12 @@ def handle_message(event):
     user_memory.setdefault('cards', {}).setdefault(user_id, "")
     user_memory.setdefault('records', {}).setdefault(user_id, [])
 
-    # 模式切換處理
-    if raw_input.startswith("設定模式："):
-        mode = raw_input.replace("設定模式：", "")
+    # ✅ 模式切換處理（接受中英文冒號）
+    if raw_input.startswith("設定模式：") or raw_input.startswith("設定模式:"):
+        mode = raw_input.replace("設定模式：", "").replace("設定模式:", "")
         if mode in ["正常邏輯", "反邏輯"]:
             user_memory['settings'][user_id]["logic"] = mode
+            print(f"目前 {user_id} 的下注邏輯模式：{mode}")  # 可選：伺服器 log
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"✅ 已切換為「{mode}」模式"))
             return
 
@@ -127,7 +128,7 @@ def handle_message(event):
 
         suggestion = predict_next_bet(cards)
 
-        # 根據邏輯模式反轉 suggestion
+        # 🔁 根據邏輯模式反轉 suggestion
         logic_mode = user_memory['settings'][user_id]["logic"]
         if logic_mode == "反邏輯":
             suggestion = "莊" if suggestion == "閒" else "閒"
@@ -151,6 +152,7 @@ def handle_message(event):
         line_bot_api.reply_message(event.reply_token, messages)
         return
 
+    # 非法輸入提醒
     line_bot_api.reply_message(event.reply_token, TextSendMessage(
         text="請輸入包含『莊』『閒』『和』的牌路，例如：莊閒莊莊閒\n或輸入：設定模式：反邏輯 / 正常邏輯"
     ))
