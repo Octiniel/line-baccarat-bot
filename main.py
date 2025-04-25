@@ -3,10 +3,14 @@ from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import MessageEvent, TextMessage, TextSendMessage, FlexSendMessage
 import os, random
+import joblib
 
 app = Flask(__name__)
 line_bot_api = LineBotApi(os.environ.get("CHANNEL_ACCESS_TOKEN"))
 handler = WebhookHandler(os.environ.get("CHANNEL_SECRET"))
+
+# 🧠 載入 AI 預測模型
+model, encoder = joblib.load("ai_model.pkl")
 
 # 🎟️ 一次性序號池（key: 序號, value: 綁定 user_id 或 None）
 activation_codes = {
@@ -32,20 +36,32 @@ def predict_next_bet(cards):
         return last3[0]
     return '閒' if cards[-1] == '莊' else '莊'
 
-def calculate_confidence(cards, suggestion):
-    score = 50
-    recent = cards[-5:]
-    if recent.count(suggestion) == 0: score += 20
-    elif recent.count(suggestion) == 1: score += 10
-    elif recent.count(suggestion) >= 4: score -= 20
-    if len(set(recent)) == 1: score += 15
-    return min(100, max(30, score))
+def predict_ai(cards):
+    if len(cards) < 5:
+        return None  # 表示不夠預測，不建議下注
+    last5 = cards[-5:]
+    encoded = encoder.transform(last5).reshape(1, -1)
+    prediction = model.predict(encoded)[0]
+    return encoder.inverse_transform([prediction])[0]
 
 def calculate_hit_rate(cards):
     if len(cards) <= 1: return 0
     return round(100 * sum(1 for i in range(1, len(cards)) if cards[i] != cards[i-1]) / (len(cards)-1), 1)
 
-def generate_analysis_flex(cards, suggestion, confidence, hit_rate, logic_mode):
+def analyze_pattern(cards):
+    if len(cards) < 5:
+        return None
+    last5 = cards[-5:]
+    if all(last5[i] != last5[i+1] for i in range(4)):
+        return "🔁 出現單跳，建議觀望或進跳打法"
+    if all(c == last5[0] for c in last5):
+        return f"🔗 出現長龍（連續{len(last5)}次「{last5[0]}」），建議順勢壓注"
+    if len(cards) >= 6 and all(c == cards[-6] for c in cards[-6:-1]) and cards[-1] != cards[-2]:
+        return "🔄 轉勢出現，建議觀察是否變盤"
+    return None
+
+def generate_analysis_flex(cards, suggestion, hit_rate, logic_mode):
+    mode_tip = f"⚙️ 當前預測模式：{logic_mode}（輸入 '原始邏輯' 或 'AI' 可切換）"
     count_z, count_x, count_h = cards.count('莊'), cards.count('閒'), cards.count('和')
     total = len(cards)
     percent = lambda c: round(c / total * 100, 1) if total else 0
@@ -55,14 +71,15 @@ def generate_analysis_flex(cards, suggestion, confidence, hit_rate, logic_mode):
         "body": {
             "type": "box", "layout": "vertical", "spacing": "md", "paddingAll": "lg",
             "contents": [
-                {"type": "text", "text": "\ud83d\udcca 百家樂分析結果", "weight": "bold", "size": "lg"},
+                {"type": "text", "text": mode_tip, "size": "sm", "color": "#888888"},
+                {"type": "text", "text": "📊 百家樂分析結果", "weight": "bold", "size": "lg"},
                 {"type": "separator"},
                 {"type": "text", "text": f"莊：{percent(count_z)}%", "size": "sm"},
                 {"type": "text", "text": f"閒：{percent(count_x)}%", "size": "sm"},
                 {"type": "text", "text": f"和：{percent(count_h)}%", "size": "sm"},
-                {"type": "text", "text": f"\ud83c\udfaf 命中率：{hit_rate}%", "size": "sm"},
+                {"type": "text", "text": f"🎯 命中率：{hit_rate}%", "size": "sm"},
                 {"type": "separator"},
-                {"type": "text", "text": f"推薦下注：{suggestion}（{logic_mode}，信心 {confidence}%）", "weight": "bold", "color": color_map[suggestion]},
+                {"type": "text", "text": f"推薦下注：{suggestion}（{logic_mode}）", "weight": "bold", "color": color_map[suggestion]},
                 {"type": "box", "layout": "horizontal", "margin": "md", "contents": [
                     {"type": "button", "action": {"type": "message", "label": "莊", "text": "莊"}, "color": "#FF4444", "style": "primary"},
                     {"type": "button", "action": {"type": "message", "label": "閒", "text": "閒"}, "color": "#0000FF", "style": "primary"},
@@ -72,13 +89,25 @@ def generate_analysis_flex(cards, suggestion, confidence, hit_rate, logic_mode):
         }
     }
 
-@app.route("/", methods=["GET"])
-def home():
-    return "✅ 百家樂 LINE 機器人已部署成功！"
+# 💡 增加 AI 模式設定邏輯可用 "AI" 指令開啟，也可用 "原始邏輯" 切回基本預測
+# 使用者輸入 "AI" → user_memory['settings'][user_id]["logic"] = "AI預測"
+# 使用者輸入 "原始邏輯" → 切回 predict_next_bet(cards)
+# 判斷方式:
+# if user_memory['settings'][user_id]["logic"] == "AI預測": 使用 AI 預測，否則使用原始預測
 
-@app.route("/ping", methods=["GET"])
-def ping():
-    return "pong", 200
+# 📌 建議整合至訊息處理階段的邏輯：
+# 在處理完 raw_input 並累積到 user_memory['cards'][user_id] 之後：
+
+        logic_mode = user_memory['settings'][user_id]["logic"]
+        if logic_mode == "AI預測":
+            suggestion = predict_ai(cards)
+            if suggestion is None:
+                line_bot_api.reply_message(event.reply_token, TextSendMessage(
+                    text="🔍 AI 模式需要至少 5 手牌路才能開始預測，請先輸入前 5 局開牌結果"
+                ))
+                return
+        else:
+            suggestion = predict_next_bet(cards)
 
 @app.route("/callback", methods=["POST"])
 def callback():
@@ -95,7 +124,7 @@ def handle_message(event):
     user_id = event.source.user_id
     raw_input = event.message.text.strip()
 
-    # ✅ 使用者輸入序號進行啟動
+    # 驗證授權
     if raw_input.startswith("序號：") or raw_input.startswith("序號:"):
         code = raw_input.replace("序號：", "").replace("序號:", "").strip()
         if code in activation_codes and activation_codes[code] is None:
@@ -106,27 +135,28 @@ def handle_message(event):
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 無效或已使用的序號，請確認後重新輸入"))
         return
 
-    # 🚫 未授權者禁止使用功能
     if user_id not in activated_users:
         line_bot_api.reply_message(event.reply_token, TextSendMessage(
             text="🔒 尚未啟用，請輸入授權序號才能使用功能"
         ))
         return
 
-    # 初始化
+    # 初始化使用者資料
     user_memory['settings'].setdefault(user_id, {"logic": "正常邏輯"})
     user_memory.setdefault('cards', {}).setdefault(user_id, "")
     user_memory.setdefault('records', {}).setdefault(user_id, [])
 
-    # 切換邏輯模式
-    if raw_input in ["正常邏輯", "反邏輯"] or raw_input.startswith("設定模式：") or raw_input.startswith("設定模式:"):
-        mode = raw_input.replace("設定模式：", "").replace("設定模式:", "")
-        if mode in ["正常邏輯", "反邏輯"]:
-            user_memory['settings'][user_id]["logic"] = mode
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"✅ 已切換為「{mode}」模式"))
+    # 模式切換
+    if raw_input == "AI":
+        user_memory['settings'][user_id]["logic"] = "AI預測"
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="✅ 已切換為 AI 預測模式"))
+        return
+    if raw_input == "原始邏輯":
+        user_memory['settings'][user_id]["logic"] = "原始邏輯"
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="✅ 已切換為原始預測邏輯"))
         return
 
-    # 功能指令
+    # 結束與清除
     if raw_input in ["下課", "結束分析"]:
         user_memory['cards'][user_id] = ""
         user_memory['records'][user_id] = []
@@ -141,7 +171,7 @@ def handle_message(event):
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text="✅ 已清除下注紀錄"))
         return
 
-    # 主功能邏輯
+    # 處理有效牌路
     if all(c in "莊閒和" for c in raw_input):
         if raw_input != "和":
             user_memory['cards'][user_id] += clean_input(raw_input)
@@ -155,16 +185,21 @@ def handle_message(event):
                 "hit": last == raw_input
             })
 
-        suggestion = predict_next_bet(cards)
         logic_mode = user_memory['settings'][user_id]["logic"]
-        if logic_mode == "反邏輯":
-            suggestion = "莊" if suggestion == "閒" else "閒"
+        if logic_mode == "AI預測":
+            suggestion = predict_ai(cards)
+            if suggestion is None:
+                line_bot_api.reply_message(event.reply_token, TextSendMessage(
+                    text="🔍 AI 模式需要至少 5 手牌路才能開始預測，請先輸入前 5 局開牌結果"
+                ))
+                return
+        else:
+            suggestion = predict_next_bet(cards)
 
-        confidence = calculate_confidence(cards, suggestion)
         hit_rate = calculate_hit_rate(cards)
         user_memory['last_suggestion'][user_id] = suggestion
 
-        analysis_flex = generate_analysis_flex(cards, suggestion, confidence, hit_rate, logic_mode)
+        analysis_flex = generate_analysis_flex(cards, suggestion, hit_rate, logic_mode)
         messages = []
 
         if raw_input != "和" and user_memory['records'][user_id]:
@@ -175,15 +210,15 @@ def handle_message(event):
             messages.append(TextSendMessage(text=result_text))
             messages.append(TextSendMessage(text=profit_text))
 
+        pattern_tip = analyze_pattern(cards)
+        if pattern_tip:
+            messages.append(TextSendMessage(text=pattern_tip))
+
         messages.append(FlexSendMessage(alt_text="百家樂分析結果", contents=analysis_flex))
         line_bot_api.reply_message(event.reply_token, messages)
         return
 
-    # 非法輸入提示
     line_bot_api.reply_message(event.reply_token, TextSendMessage(
-        text="請輸入包含『莊』『閒』『和』的牌路，例如：莊閒莊莊閒\n或輸入：反邏輯 / 正常邏輯 切換模式"
+        text="請輸入包含『莊』『閒』『和』的牌路，例如：莊閒莊莊閒
+或輸入：AI / 原始邏輯 切換模式"
     ))
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
