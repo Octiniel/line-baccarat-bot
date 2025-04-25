@@ -1,28 +1,24 @@
-import joblib
-import numpy as np
-from sklearn.preprocessing import LabelEncoder
-from sklearn.tree import DecisionTreeClassifier
 from flask import Flask, request
 from linebot import LineBotApi, WebhookHandler
-from linebot.exceptions import InvalidSignatureError
 from linebot.models import MessageEvent, TextMessage, TextSendMessage, FlexSendMessage
 import os, random
+import joblib
 
 app = Flask(__name__)
 line_bot_api = LineBotApi(os.environ.get("CHANNEL_ACCESS_TOKEN"))
 handler = WebhookHandler(os.environ.get("CHANNEL_SECRET"))
 
-# 🧠 載入 AI 預測模型
+# 載入 AI 預測模型
 model, encoder = joblib.load("ai_model.pkl")
 
-# 🎟️ 一次性序號池（key: 序號, value: 綁定 user_id 或 None）
+# 一次性序號池
 activation_codes = {
     "VIA-A01": None,
     "VIA-A02": None,
     "VIA-A03": None
 }
 
-# 🧠 記住已啟動的使用者
+# 記住已啟動的使用者
 activated_users = set()
 
 # 使用者記憶資料
@@ -74,4 +70,93 @@ def generate_analysis_flex(cards, suggestion, hit_rate, logic_mode):
 
 @app.route("/callback", methods=["POST"])
 def callback():
-    signature = request.headers["
+    signature = request.headers["X-Line-Signature"]
+    body = request.get_data(as_text=True)
+    try:
+        handler.handle(body, signature)
+    except InvalidSignatureError:
+        return "Invalid signature", 400
+    return "OK", 200
+
+@handler.add(MessageEvent, message=TextMessage)
+def handle_message(event):
+    user_id = event.source.user_id
+    raw_input = event.message.text.strip()
+
+    # 驗證授權
+    if raw_input.startswith("序號：") or raw_input.startswith("序號:"):
+        code = raw_input.replace("序號：", "").replace("序號:", "").strip()
+        if code in activation_codes and activation_codes[code] is None:
+            activation_codes[code] = user_id
+            activated_users.add(user_id)
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="✅ 序號驗證成功，功能已解鎖"))
+        else:
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 無效或已使用的序號，請確認後重新輸入"))
+        return
+
+    if user_id not in activated_users:
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(
+            text="🔒 尚未啟用，請輸入授權序號才能使用功能"
+        ))
+        return
+
+    # 初始化使用者資料
+    user_memory['settings'].setdefault(user_id, {"logic": "正常邏輯"})
+    user_memory.setdefault('cards', {}).setdefault(user_id, "")
+    user_memory.setdefault('records', {}).setdefault(user_id, [])
+
+    # 模式切換
+    if raw_input == "AI":
+        user_memory['settings'][user_id]["logic"] = "AI預測"
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="✅ 已切換為 AI 預測模式"))
+        return
+    if raw_input == "原始邏輯":
+        user_memory['settings'][user_id]["logic"] = "原始邏輯"
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="✅ 已切換為原始預測邏輯"))
+        return
+
+    # 結束與清除
+    if raw_input in ["下課", "結束分析"]:
+        user_memory['cards'][user_id] = ""
+        user_memory['records'][user_id] = []
+        user_memory['last_suggestion'][user_id] = ""
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="✅ 已結束分析，歡迎再次使用！"))
+        return
+
+    if raw_input == "清除紀錄":
+        user_memory['cards'][user_id] = ""
+        user_memory['records'][user_id] = []
+        user_memory['last_suggestion'][user_id] = ""
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="✅ 已清除下注紀錄"))
+        return
+
+    # 處理有效牌路
+    if all(c in "莊閒和" for c in raw_input):
+        if raw_input != "和":
+            user_memory['cards'][user_id] += clean_input(raw_input)
+
+        cards = user_memory['cards'][user_id]
+        last = user_memory['last_suggestion'].get(user_id)
+
+        if last and raw_input != "和":
+            user_memory['records'][user_id].append({
+                "suggestion": last,
+                "hit": last == raw_input
+            })
+
+        suggestion = predict_next_bet(cards)
+
+        hit_rate = calculate_hit_rate(cards)
+        user_memory['last_suggestion'][user_id] = suggestion
+
+        analysis_flex = generate_analysis_flex(cards, suggestion, hit_rate, "原始邏輯")
+        line_bot_api.reply_message(event.reply_token, FlexSendMessage(alt_text="百家樂分析結果", contents=analysis_flex))
+
+        return
+
+    line_bot_api.reply_message(event.reply_token, TextSendMessage(
+        text="請輸入包含『莊』『閒』『和』的牌路，例如：莊閒莊莊閒\n或輸入：AI / 原始邏輯 切換模式"
+    ))
+
+if __name__ == "__main__":
+    app.run(debug=True)
