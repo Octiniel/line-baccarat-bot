@@ -8,11 +8,17 @@ app = Flask(__name__)
 line_bot_api = LineBotApi(os.environ.get("CHANNEL_ACCESS_TOKEN"))
 handler = WebhookHandler(os.environ.get("CHANNEL_SECRET"))
 
-# 🧾 啟用序號機制
-valid_activation_codes = {"VIA-BJ001"}
+# 🎟️ 一次性序號池（key: 序號, value: 綁定 user_id 或 None）
+activation_codes = {
+    "VIA-A01": None,
+    "VIA-A02": None,
+    "VIA-A03": None
+}
+
+# 🧠 記住已啟動的使用者
 activated_users = set()
 
-# 使用者記憶
+# 使用者記憶資料
 user_memory = {'records': {}, 'last_suggestion': {}, 'cards': {}, 'settings': {}}
 
 def clean_input(text):
@@ -49,12 +55,12 @@ def generate_analysis_flex(cards, suggestion, confidence, hit_rate, logic_mode):
         "body": {
             "type": "box", "layout": "vertical", "spacing": "md", "paddingAll": "lg",
             "contents": [
-                {"type": "text", "text": "📊 百家樂分析結果", "weight": "bold", "size": "lg"},
+                {"type": "text", "text": "\ud83d\udcca 百家樂分析結果", "weight": "bold", "size": "lg"},
                 {"type": "separator"},
                 {"type": "text", "text": f"莊：{percent(count_z)}%", "size": "sm"},
                 {"type": "text", "text": f"閒：{percent(count_x)}%", "size": "sm"},
                 {"type": "text", "text": f"和：{percent(count_h)}%", "size": "sm"},
-                {"type": "text", "text": f"🎯 命中率：{hit_rate}%", "size": "sm"},
+                {"type": "text", "text": f"\ud83c\udfaf 命中率：{hit_rate}%", "size": "sm"},
                 {"type": "separator"},
                 {"type": "text", "text": f"推薦下注：{suggestion}（{logic_mode}，信心 {confidence}%）", "weight": "bold", "color": color_map[suggestion]},
                 {"type": "box", "layout": "horizontal", "margin": "md", "contents": [
@@ -68,7 +74,7 @@ def generate_analysis_flex(cards, suggestion, confidence, hit_rate, logic_mode):
 
 @app.route("/", methods=["GET"])
 def home():
-    return "✅ 百家樂 LINE 機器人已部署成功！請輸入啟用序號以使用功能"
+    return "✅ 百家樂 LINE 機器人已部署成功！"
 
 @app.route("/ping", methods=["GET"])
 def ping():
@@ -89,29 +95,30 @@ def handle_message(event):
     user_id = event.source.user_id
     raw_input = event.message.text.strip()
 
-    # ✅ 啟用序號處理
+    # ✅ 使用者輸入序號進行啟動
     if raw_input.startswith("序號：") or raw_input.startswith("序號:"):
         code = raw_input.replace("序號：", "").replace("序號:", "").strip()
-        if code in valid_activation_codes:
+        if code in activation_codes and activation_codes[code] is None:
+            activation_codes[code] = user_id
             activated_users.add(user_id)
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="✅ 序號正確，功能已解鎖"))
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="✅ 序號驗證成功，功能已解鎖"))
         else:
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 無效的序號，請確認後重新輸入"))
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 無效或已使用的序號，請確認後重新輸入"))
         return
 
-    # 🚫 尚未啟用的使用者無法使用其他功能
+    # 🚫 未授權者禁止使用功能
     if user_id not in activated_users:
         line_bot_api.reply_message(event.reply_token, TextSendMessage(
-            text="🔒 尚未啟用，請輸入序號才能使用機器人功能
+            text="🔒 尚未啟用，請輸入授權序號才能使用功能"
         ))
         return
 
-    # 初始化邏輯模式與資料結構
+    # 初始化
     user_memory['settings'].setdefault(user_id, {"logic": "正常邏輯"})
     user_memory.setdefault('cards', {}).setdefault(user_id, "")
     user_memory.setdefault('records', {}).setdefault(user_id, [])
 
-    # 模式切換
+    # 切換邏輯模式
     if raw_input in ["正常邏輯", "反邏輯"] or raw_input.startswith("設定模式：") or raw_input.startswith("設定模式:"):
         mode = raw_input.replace("設定模式：", "").replace("設定模式:", "")
         if mode in ["正常邏輯", "反邏輯"]:
@@ -119,6 +126,7 @@ def handle_message(event):
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"✅ 已切換為「{mode}」模式"))
         return
 
+    # 功能指令
     if raw_input in ["下課", "結束分析"]:
         user_memory['cards'][user_id] = ""
         user_memory['records'][user_id] = []
@@ -133,6 +141,7 @@ def handle_message(event):
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text="✅ 已清除下注紀錄"))
         return
 
+    # 主功能邏輯
     if all(c in "莊閒和" for c in raw_input):
         if raw_input != "和":
             user_memory['cards'][user_id] += clean_input(raw_input)
@@ -147,8 +156,6 @@ def handle_message(event):
             })
 
         suggestion = predict_next_bet(cards)
-
-        # 反邏輯處理
         logic_mode = user_memory['settings'][user_id]["logic"]
         if logic_mode == "反邏輯":
             suggestion = "莊" if suggestion == "閒" else "閒"
@@ -158,8 +165,8 @@ def handle_message(event):
         user_memory['last_suggestion'][user_id] = suggestion
 
         analysis_flex = generate_analysis_flex(cards, suggestion, confidence, hit_rate, logic_mode)
-
         messages = []
+
         if raw_input != "和" and user_memory['records'][user_id]:
             last_record = user_memory['records'][user_id][-1]
             result_text = f"好耶！這局開「{raw_input}」✅ 命中！" if last_record['hit'] else f"這局開「{raw_input}」❌ 沒中～"
@@ -172,6 +179,7 @@ def handle_message(event):
         line_bot_api.reply_message(event.reply_token, messages)
         return
 
+    # 非法輸入提示
     line_bot_api.reply_message(event.reply_token, TextSendMessage(
         text="請輸入包含『莊』『閒』『和』的牌路，例如：莊閒莊莊閒\n或輸入：反邏輯 / 正常邏輯 切換模式"
     ))
