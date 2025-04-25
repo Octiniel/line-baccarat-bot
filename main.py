@@ -1,24 +1,22 @@
+import random
 from flask import Flask, request
 from linebot import LineBotApi, WebhookHandler
+from linebot.exceptions import InvalidSignatureError
 from linebot.models import MessageEvent, TextMessage, TextSendMessage, FlexSendMessage
-import os, random
-import joblib
+import os
 
 app = Flask(__name__)
 line_bot_api = LineBotApi(os.environ.get("CHANNEL_ACCESS_TOKEN"))
 handler = WebhookHandler(os.environ.get("CHANNEL_SECRET"))
 
-# 載入 AI 預測模型
-model, encoder = joblib.load("ai_model.pkl")
-
-# 一次性序號池
+# 🎟️ 一次性序號池（key: 序號, value: 綁定 user_id 或 None）
 activation_codes = {
     "VIA-A01": None,
     "VIA-A02": None,
     "VIA-A03": None
 }
 
-# 記住已啟動的使用者
+# 🧠 記住已啟動的使用者
 activated_users = set()
 
 # 使用者記憶資料
@@ -40,7 +38,7 @@ def calculate_hit_rate(cards):
     return round(100 * sum(1 for i in range(1, len(cards)) if cards[i] != cards[i-1]) / (len(cards)-1), 1)
 
 def generate_analysis_flex(cards, suggestion, hit_rate, logic_mode):
-    mode_tip = f"⚙️ 當前預測模式：{logic_mode}（輸入 '原始邏輯' 或 'AI' 可切換）"
+    mode_tip = f"⚙️ 當前預測模式：{logic_mode}（輸入 '原始邏輯' 可切換）"
     count_z, count_x, count_h = cards.count('莊'), cards.count('閒'), cards.count('和')
     total = len(cards)
     percent = lambda c: round(c / total * 100, 1) if total else 0
@@ -105,29 +103,10 @@ def handle_message(event):
     user_memory.setdefault('cards', {}).setdefault(user_id, "")
     user_memory.setdefault('records', {}).setdefault(user_id, [])
 
-    # 模式切換
-    if raw_input == "AI":
-        user_memory['settings'][user_id]["logic"] = "AI預測"
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="✅ 已切換為 AI 預測模式"))
-        return
+    # 切換邏輯模式
     if raw_input == "原始邏輯":
         user_memory['settings'][user_id]["logic"] = "原始邏輯"
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text="✅ 已切換為原始預測邏輯"))
-        return
-
-    # 結束與清除
-    if raw_input in ["下課", "結束分析"]:
-        user_memory['cards'][user_id] = ""
-        user_memory['records'][user_id] = []
-        user_memory['last_suggestion'][user_id] = ""
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="✅ 已結束分析，歡迎再次使用！"))
-        return
-
-    if raw_input == "清除紀錄":
-        user_memory['cards'][user_id] = ""
-        user_memory['records'][user_id] = []
-        user_memory['last_suggestion'][user_id] = ""
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="✅ 已清除下注紀錄"))
         return
 
     # 處理有效牌路
@@ -149,14 +128,22 @@ def handle_message(event):
         hit_rate = calculate_hit_rate(cards)
         user_memory['last_suggestion'][user_id] = suggestion
 
+        # 生成分析結果
         analysis_flex = generate_analysis_flex(cards, suggestion, hit_rate, "原始邏輯")
-        line_bot_api.reply_message(event.reply_token, FlexSendMessage(alt_text="百家樂分析結果", contents=analysis_flex))
+        messages = []
 
+        if raw_input != "和" and user_memory['records'][user_id]:
+            last_record = user_memory['records'][user_id][-1]
+            result_text = f"好耶！這局開「{raw_input}」✅ 命中！" if last_record['hit'] else f"這局開「{raw_input}」❌ 沒中～"
+            total_profit = sum([100 if r['hit'] else -100 for r in user_memory['records'][user_id]])
+            profit_text = f"累積獲利：{total_profit:+} 元"
+            messages.append(TextSendMessage(text=result_text))
+            messages.append(TextSendMessage(text=profit_text))
+
+        messages.append(FlexSendMessage(alt_text="百家樂分析結果", contents=analysis_flex))
+        line_bot_api.reply_message(event.reply_token, messages)
         return
 
     line_bot_api.reply_message(event.reply_token, TextSendMessage(
         text="請輸入包含『莊』『閒』『和』的牌路，例如：莊閒莊莊閒\n或輸入：AI / 原始邏輯 切換模式"
     ))
-
-if __name__ == "__main__":
-    app.run(debug=True)
