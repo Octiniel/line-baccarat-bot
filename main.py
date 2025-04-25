@@ -147,3 +147,8 @@ def handle_message(event):
     line_bot_api.reply_message(event.reply_token, TextSendMessage(
         text="請輸入包含『莊』『閒』『和』的牌路，例如：莊閒莊莊閒\n或輸入：AI / 原始邏輯 切換模式"
     ))
+
+# ✅ 補上首頁路由，避免 Render 顯示 404
+@app.route('/')
+def home():
+    return 'LINE Baccarat Bot is running.'
