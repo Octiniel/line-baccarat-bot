@@ -8,17 +8,7 @@ app = Flask(__name__)
 line_bot_api = LineBotApi(os.environ.get("CHANNEL_ACCESS_TOKEN"))
 handler = WebhookHandler(os.environ.get("CHANNEL_SECRET"))
 
-user_memory = {'records': {}, 'last_suggestion': {}, 'cards': {}}
-
-# ✅ 主頁（用來避免 404）
-@app.route("/", methods=["GET"])
-def home():
-    return "🤖 百家樂 LINE 機器人已部署成功！請透過 LINE 對話啟用。"
-
-# ✅ 保活路由（UptimeRobot 專用）
-@app.route("/ping", methods=["GET"])
-def ping():
-    return "pong", 200
+user_memory = {'records': {}, 'last_suggestion': {}, 'cards': {}, 'settings': {}}
 
 def clean_input(text):
     return ''.join(c for c in text if c in '莊閒和')
@@ -44,7 +34,7 @@ def calculate_hit_rate(cards):
     if len(cards) <= 1: return 0
     return round(100 * sum(1 for i in range(1, len(cards)) if cards[i] != cards[i-1]) / (len(cards)-1), 1)
 
-def generate_analysis_flex(cards, suggestion, confidence, hit_rate):
+def generate_analysis_flex(cards, suggestion, confidence, hit_rate, logic_mode):
     count_z, count_x, count_h = cards.count('莊'), cards.count('閒'), cards.count('和')
     total = len(cards)
     percent = lambda c: round(c / total * 100, 1) if total else 0
@@ -61,7 +51,7 @@ def generate_analysis_flex(cards, suggestion, confidence, hit_rate):
                 {"type": "text", "text": f"和：{percent(count_h)}%", "size": "sm"},
                 {"type": "text", "text": f"🎯 命中率：{hit_rate}%", "size": "sm"},
                 {"type": "separator"},
-                {"type": "text", "text": f"推薦下注：{suggestion}（信心 {confidence}%）", "weight": "bold", "color": color_map[suggestion]},
+                {"type": "text", "text": f"推薦下注：{suggestion}（{logic_mode}，信心 {confidence}%）", "weight": "bold", "color": color_map[suggestion]},
                 {"type": "box", "layout": "horizontal", "margin": "md", "contents": [
                     {"type": "button", "action": {"type": "message", "label": "莊", "text": "莊"}, "color": "#FF4444", "style": "primary"},
                     {"type": "button", "action": {"type": "message", "label": "閒", "text": "閒"}, "color": "#0000FF", "style": "primary"},
@@ -70,6 +60,14 @@ def generate_analysis_flex(cards, suggestion, confidence, hit_rate):
             ]
         }
     }
+
+@app.route("/", methods=["GET"])
+def home():
+    return "✅ 百家樂 LINE 機器人已部署成功！請透過 LINE 對話啟用。"
+
+@app.route("/ping", methods=["GET"])
+def ping():
+    return "pong", 200
 
 @app.route("/callback", methods=["POST"])
 def callback():
@@ -86,6 +84,20 @@ def handle_message(event):
     user_id = event.source.user_id
     raw_input = event.message.text.strip()
 
+    # 初始化設定
+    user_memory['settings'].setdefault(user_id, {"logic": "正常邏輯"})
+    user_memory.setdefault('cards', {}).setdefault(user_id, "")
+    user_memory.setdefault('records', {}).setdefault(user_id, [])
+
+    # 模式切換處理
+    if raw_input.startswith("設定模式："):
+        mode = raw_input.replace("設定模式：", "")
+        if mode in ["正常邏輯", "反邏輯"]:
+            user_memory['settings'][user_id]["logic"] = mode
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"✅ 已切換為「{mode}」模式"))
+            return
+
+    # 指令處理
     if raw_input in ["下課", "結束分析"]:
         user_memory['cards'][user_id] = ""
         user_memory['records'][user_id] = []
@@ -101,9 +113,6 @@ def handle_message(event):
         return
 
     if all(c in "莊閒和" for c in raw_input):
-        user_memory.setdefault('cards', {}).setdefault(user_id, "")
-        user_memory.setdefault('records', {}).setdefault(user_id, [])
-
         if raw_input != "和":
             user_memory['cards'][user_id] += clean_input(raw_input)
 
@@ -117,13 +126,19 @@ def handle_message(event):
             })
 
         suggestion = predict_next_bet(cards)
+
+        # 根據邏輯模式反轉 suggestion
+        logic_mode = user_memory['settings'][user_id]["logic"]
+        if logic_mode == "反邏輯":
+            suggestion = "莊" if suggestion == "閒" else "閒"
+
         confidence = calculate_confidence(cards, suggestion)
         hit_rate = calculate_hit_rate(cards)
         user_memory['last_suggestion'][user_id] = suggestion
-        analysis_flex = generate_analysis_flex(cards, suggestion, confidence, hit_rate)
+
+        analysis_flex = generate_analysis_flex(cards, suggestion, confidence, hit_rate, logic_mode)
 
         messages = []
-
         if raw_input != "和" and user_memory['records'][user_id]:
             last_record = user_memory['records'][user_id][-1]
             result_text = f"好耶！這局開「{raw_input}」✅ 命中！" if last_record['hit'] else f"這局開「{raw_input}」❌ 沒中～"
@@ -136,8 +151,9 @@ def handle_message(event):
         line_bot_api.reply_message(event.reply_token, messages)
         return
 
-    reply = TextSendMessage(text="請輸入包含『莊』『閒』『和』的牌路，例如：莊閒莊莊閒")
-    line_bot_api.reply_message(event.reply_token, reply)
+    line_bot_api.reply_message(event.reply_token, TextSendMessage(
+        text="請輸入包含『莊』『閒』『和』的牌路，例如：莊閒莊莊閒\n或輸入：設定模式：反邏輯 / 正常邏輯"
+    ))
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
