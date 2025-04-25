@@ -95,19 +95,7 @@ def generate_analysis_flex(cards, suggestion, hit_rate, logic_mode):
 # 判斷方式:
 # if user_memory['settings'][user_id]["logic"] == "AI預測": 使用 AI 預測，否則使用原始預測
 
-# 📌 建議整合至訊息處理階段的邏輯：
-# 在處理完 raw_input 並累積到 user_memory['cards'][user_id] 之後：
 
-        logic_mode = user_memory['settings'][user_id]["logic"]
-        if logic_mode == "AI預測":
-            suggestion = predict_ai(cards)
-            if suggestion is None:
-                line_bot_api.reply_message(event.reply_token, TextSendMessage(
-                    text="🔍 AI 模式需要至少 5 手牌路才能開始預測，請先輸入前 5 局開牌結果"
-                ))
-                return
-        else:
-            suggestion = predict_next_bet(cards)
 
 @app.route("/callback", methods=["POST"])
 def callback():
