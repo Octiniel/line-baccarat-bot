@@ -1,4 +1,3 @@
-
 from flask import Flask, request
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
@@ -9,7 +8,7 @@ app = Flask(__name__)
 line_bot_api = LineBotApi(os.environ.get("CHANNEL_ACCESS_TOKEN"))
 handler = WebhookHandler(os.environ.get("CHANNEL_SECRET"))
 
-user_memory = {'records': {}, 'last_suggestion': {}}
+user_memory = {'records': {}, 'last_suggestion': {}, 'cards': {}}
 
 def clean_input(text):
     return ''.join(c for c in text if c in '莊閒和')
@@ -78,25 +77,34 @@ def handle_message(event):
     raw_input = event.message.text.strip()
 
     if raw_input in ["下課", "結束分析"]:
-        user_memory[user_id] = ""
+        user_memory['cards'][user_id] = ""
         user_memory['records'][user_id] = []
         user_memory['last_suggestion'][user_id] = ""
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text="✅ 已結束分析，歡迎再次使用！"))
         return
 
     if raw_input == "清除紀錄":
+        user_memory['cards'][user_id] = ""
         user_memory['records'][user_id] = []
         user_memory['last_suggestion'][user_id] = ""
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text="✅ 已清除下注紀錄"))
         return
 
     if all(c in "莊閒和" for c in raw_input):
-        cards = user_memory.get(user_id, "") + clean_input(raw_input)
-        user_memory[user_id] = cards
+        if user_id not in user_memory['cards']:
+            user_memory['cards'][user_id] = ""
+        if user_id not in user_memory['records']:
+            user_memory['records'][user_id] = []
 
+        if raw_input != "和":
+            user_memory['cards'][user_id] += clean_input(raw_input)
+
+        cards = user_memory['cards'][user_id]
         last = user_memory['last_suggestion'].get(user_id)
-        if last and raw_input != "和":
-            user_memory['records'].setdefault(user_id, []).append({
+
+        # 避免第一筆記錄就進行命中判定
+        if last and raw_input != "和" and len(user_memory['records'][user_id]) >= 1:
+            user_memory['records'][user_id].append({
                 "suggestion": last,
                 "hit": last == raw_input
             })
@@ -105,23 +113,18 @@ def handle_message(event):
         confidence = calculate_confidence(cards, suggestion)
         hit_rate = calculate_hit_rate(cards)
         user_memory['last_suggestion'][user_id] = suggestion
-
         analysis_flex = generate_analysis_flex(cards, suggestion, confidence, hit_rate)
 
-        if raw_input != "和" and user_memory['records'][user_id]:
+        messages = []
+        if raw_input != "和" and len(user_memory['records'][user_id]) >= 1:
             last_record = user_memory['records'][user_id][-1]
             result_text = f"好耶！這局開「{raw_input}」✅ 命中！" if last_record['hit'] else f"這局開「{raw_input}」❌ 沒中～"
             total_profit = sum([100 if r['hit'] else -100 for r in user_memory['records'][user_id]])
             profit_text = f"累積獲利：{total_profit:+} 元"
-            line_bot_api.reply_message(event.reply_token, [
-                TextSendMessage(text=result_text),
-                TextSendMessage(text=profit_text),
-                FlexSendMessage(alt_text="百家樂分析結果", contents=analysis_flex)
-            ])
-        else:
-            line_bot_api.reply_message(event.reply_token, [
-                FlexSendMessage(alt_text="百家樂分析結果", contents=analysis_flex)
-            ])
+            messages.extend([TextSendMessage(text=result_text), TextSendMessage(text=profit_text)])
+
+        messages.append(FlexSendMessage(alt_text="百家樂分析結果", contents=analysis_flex))
+        line_bot_api.reply_message(event.reply_token, messages)
         return
 
     reply = TextSendMessage(text="請輸入包含『莊』『閒』『和』的牌路，例如：莊閒莊莊閒")
