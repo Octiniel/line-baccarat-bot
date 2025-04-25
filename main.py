@@ -102,7 +102,7 @@ def handle_message(event):
     # 🚫 尚未啟用的使用者無法使用其他功能
     if user_id not in activated_users:
         line_bot_api.reply_message(event.reply_token, TextSendMessage(
-            text="🔒 尚未啟用，請輸入序號才能使用機器人功能\n範例：序號：VIA-BJ001"
+            text="🔒 尚未啟用，請輸入序號才能使用機器人功能
         ))
         return
 
