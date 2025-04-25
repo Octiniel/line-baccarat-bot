@@ -10,6 +10,16 @@ handler = WebhookHandler(os.environ.get("CHANNEL_SECRET"))
 
 user_memory = {'records': {}, 'last_suggestion': {}, 'cards': {}}
 
+# ✅ 主頁（用來避免 404）
+@app.route("/", methods=["GET"])
+def home():
+    return "🤖 百家樂 LINE 機器人已部署成功！請透過 LINE 對話啟用。"
+
+# ✅ 保活路由（UptimeRobot 專用）
+@app.route("/ping", methods=["GET"])
+def ping():
+    return "pong", 200
+
 def clean_input(text):
     return ''.join(c for c in text if c in '莊閒和')
 
@@ -100,21 +110,18 @@ def handle_message(event):
         cards = user_memory['cards'][user_id]
         last = user_memory['last_suggestion'].get(user_id)
 
-        # 記錄命中紀錄（避開第一局或和局）
         if last and raw_input != "和":
             user_memory['records'][user_id].append({
                 "suggestion": last,
                 "hit": last == raw_input
             })
 
-        # 新的預測
         suggestion = predict_next_bet(cards)
         confidence = calculate_confidence(cards, suggestion)
         hit_rate = calculate_hit_rate(cards)
         user_memory['last_suggestion'][user_id] = suggestion
         analysis_flex = generate_analysis_flex(cards, suggestion, confidence, hit_rate)
 
-        # 準備回應訊息
         messages = []
 
         if raw_input != "和" and user_memory['records'][user_id]:
@@ -129,7 +136,6 @@ def handle_message(event):
         line_bot_api.reply_message(event.reply_token, messages)
         return
 
-    # 非法輸入提醒
     reply = TextSendMessage(text="請輸入包含『莊』『閒』『和』的牌路，例如：莊閒莊莊閒")
     line_bot_api.reply_message(event.reply_token, reply)
 
