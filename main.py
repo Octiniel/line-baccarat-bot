@@ -66,15 +66,26 @@ def generate_analysis_flex(cards, suggestion, hit_rate, logic_mode):
         }
     }
 
-@app.route("/callback", methods=["POST"])
+# 👇 補上首頁路由，避免 Render 的 404
+@app.route('/', methods=['GET'])
+def home():
+    return 'LINE Baccarat Bot is running.', 200
+
+# 主 Webhook 路由，支援 GET & POST
+@app.route('/callback', methods=['GET', 'POST'])
 def callback():
-    signature = request.headers["X-Line-Signature"]
+    if request.method == 'GET':
+        # 回應健康檢查或誤觸發的 GET 請求
+        return 'Callback endpoint is alive.', 200
+
+    # 處理 LINE POST Webhook
+    signature = request.headers.get('X-Line-Signature', '')
     body = request.get_data(as_text=True)
     try:
         handler.handle(body, signature)
     except InvalidSignatureError:
-        return "Invalid signature", 400
-    return "OK", 200
+        return 'Invalid signature', 400
+    return 'OK', 200
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
@@ -82,57 +93,56 @@ def handle_message(event):
     raw_input = event.message.text.strip()
 
     # 驗證授權
-    if raw_input.startswith("序號：") or raw_input.startswith("序號:"):
-        code = raw_input.replace("序號：", "").replace("序號:", "").strip()
+    if raw_input.startswith('序號：') or raw_input.startswith('序號:'):
+        code = raw_input.replace('序號：', '').replace('序號:', '').strip()
         if code in activation_codes and activation_codes[code] is None:
             activation_codes[code] = user_id
             activated_users.add(user_id)
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="✅ 序號驗證成功，功能已解鎖"))
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text='✅ 序號驗證成功，功能已解鎖'))
         else:
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 無效或已使用的序號，請確認後重新輸入"))
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text='❌ 無效或已使用的序號，請確認後重新輸入'))
         return
 
     if user_id not in activated_users:
         line_bot_api.reply_message(event.reply_token, TextSendMessage(
-            text="🔒 尚未啟用，請輸入授權序號才能使用功能"
+            text='🔒 尚未啟用，請輸入授權序號才能使用功能'
         ))
         return
 
     # 初始化使用者資料
-    user_memory['settings'].setdefault(user_id, {"logic": "正常邏輯"})
-    user_memory.setdefault('cards', {}).setdefault(user_id, "")
+    user_memory['settings'].setdefault(user_id, {'logic': '正常邏輯'})
+    user_memory.setdefault('cards', {}).setdefault(user_id, '')
     user_memory.setdefault('records', {}).setdefault(user_id, [])
 
     # 切換邏輯模式
-    if raw_input == "原始邏輯":
-        user_memory['settings'][user_id]["logic"] = "原始邏輯"
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="✅ 已切換為原始預測邏輯"))
+    if raw_input == '原始邏輯':
+        user_memory['settings'][user_id]['logic'] = '原始邏輯'
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text='✅ 已切換為原始預測邏輯'))
         return
 
     # 處理有效牌路
-    if all(c in "莊閒和" for c in raw_input):
-        if raw_input != "和":
+    if all(c in '莊閒和' for c in raw_input):
+        if raw_input != '和':
             user_memory['cards'][user_id] += clean_input(raw_input)
 
         cards = user_memory['cards'][user_id]
         last = user_memory['last_suggestion'].get(user_id)
 
-        if last and raw_input != "和":
+        if last and raw_input != '和':
             user_memory['records'][user_id].append({
-                "suggestion": last,
-                "hit": last == raw_input
+                'suggestion': last,
+                'hit': last == raw_input
             })
 
         suggestion = predict_next_bet(cards)
-
         hit_rate = calculate_hit_rate(cards)
         user_memory['last_suggestion'][user_id] = suggestion
 
         # 生成分析結果
-        analysis_flex = generate_analysis_flex(cards, suggestion, hit_rate, "原始邏輯")
+        analysis_flex = generate_analysis_flex(cards, suggestion, hit_rate, '原始邏輯')
         messages = []
 
-        if raw_input != "和" and user_memory['records'][user_id]:
+        if raw_input != '和' and user_memory['records'][user_id]:
             last_record = user_memory['records'][user_id][-1]
             result_text = f"好耶！這局開「{raw_input}」✅ 命中！" if last_record['hit'] else f"這局開「{raw_input}」❌ 沒中～"
             total_profit = sum([100 if r['hit'] else -100 for r in user_memory['records'][user_id]])
@@ -140,15 +150,15 @@ def handle_message(event):
             messages.append(TextSendMessage(text=result_text))
             messages.append(TextSendMessage(text=profit_text))
 
-        messages.append(FlexSendMessage(alt_text="百家樂分析結果", contents=analysis_flex))
+        messages.append(FlexSendMessage(alt_text='百家樂分析結果', contents=analysis_flex))
         line_bot_api.reply_message(event.reply_token, messages)
         return
 
+    # 非法輸入回覆提示
     line_bot_api.reply_message(event.reply_token, TextSendMessage(
-        text="請輸入包含『莊』『閒』『和』的牌路，例如：莊閒莊莊閒\n或輸入：AI / 原始邏輯 切換模式"
+        text='請輸入包含『莊』『閒』『和』的牌路，例如：莊閒莊莊閒'
     ))
 
-# ✅ 補上首頁路由，避免 Render 顯示 404
-@app.route('/')
-def home():
-    return 'LINE Baccarat Bot is running.'
+if __name__ == '__main__':
+    # Debug 模式下本機測試
+    app.run(debug=True)
