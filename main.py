@@ -21,7 +21,7 @@ user_memory = {
 }
 
 def clean_input(text):
-    return ''.join(c for c in text if c in '莊閒和')
+    return ''.join(c for c in '莊閒和')
 
 def predict_next_bet(cards):
     if len(cards) < 3:
@@ -39,6 +39,21 @@ def reverse_bet(suggestion):
 def calculate_hit_rate(cards):
     if len(cards) <= 1: return 0
     return round(100 * sum(1 for i in range(1, len(cards)) if cards[i] != cards[i-1]) / (len(cards)-1), 1)
+
+# 🔥 新增：判斷莊/閒連開
+def detect_streak(cards, threshold=4):
+    if len(cards) < threshold:
+        return None
+    last = cards[-1]
+    count = 0
+    for c in reversed(cards):
+        if c == last:
+            count += 1
+        else:
+            break
+    if count >= threshold and last in ['莊', '閒']:
+        return last
+    return None
 
 def generate_analysis_flex(cards, suggestion, hit_rate, logic_mode, games, wins, losses):
     mode_tip = f"⚙️ 當前模式：{logic_mode}"
@@ -152,9 +167,15 @@ def handle_message(event):
             user_memory['game_count'][user_id] += 1
 
         logic_mode = user_memory['settings'][user_id]['logic']
-        suggestion = predict_next_bet(cards)
-        if logic_mode == '反邏輯':
-            suggestion = reverse_bet(suggestion)
+
+        # 🧠 節奏轉判斷：四連以上追龍
+        streak = detect_streak(cards)
+        if streak:
+            suggestion = streak
+        else:
+            suggestion = predict_next_bet(cards)
+            if logic_mode == '反邏輯':
+                suggestion = reverse_bet(suggestion)
 
         hit_rate = calculate_hit_rate(cards)
         user_memory['last_suggestion'][user_id] = suggestion
