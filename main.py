@@ -11,55 +11,74 @@ handler = WebhookHandler(os.environ.get("CHANNEL_SECRET"))
 
 # 使用者記憶資料
 user_memory = {
-    'records': {},          # 每局記錄
-    'last_suggestion': {},  # 上次建議
-    'cards': {},            # 牌路
-    'settings': {},         # 個人設定
-    'results': {},          # 勝負紀錄
-    'profit': {}            # 累積獲利
+    'records': {},
+    'last_suggestion': {},
+    'cards': {},
+    'results': {},
+    'profit': {}
 }
 
+# 🧼 清理輸入，只保留有效牌路
 def clean_input(text):
-    return ''.join(c for c in '莊閒和')
+    return ''.join(c for c in text if c in '莊閒和')
 
+# 📊 預測邏輯（簡單示例）
 def predict_next_bet(cards):
     if len(cards) < 3:
         return random.choice(['莊', '閒'])
-    last_three = cards[-3:]
-    if last_three == ['莊', '閒', '莊']:
+    last = cards[-1]
+    if cards[-3:] == ['莊', '閒', '莊']:
         return '閒'
-    if last_three.count('莊') > last_three.count('閒'):
-        return '閒'
-    else:
-        return '莊'
+    return '莊' if last == '閒' else '閒'
+
+# 🔁 Flex 建議卡片
+def generate_suggestion_flex(suggestion, win_rate, banker_rate, player_rate, tie_rate):
+    return {
+        "type": "bubble",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "md",
+            "contents": [
+                {"type": "text", "text": "🎯 百家樂分析結果", "weight": "bold", "size": "lg"},
+                {"type": "text", "text": f"莊: {banker_rate:.1f}%  閒: {player_rate:.1f}%  和: {tie_rate:.1f}%", "size": "sm"},
+                {"type": "text", "text": f"命中率：{win_rate:.1f}%", "size": "sm", "margin": "none"},
+                {
+                    "type": "text",
+                    "text": f"推薦下注：{suggestion}",
+                    "weight": "bold",
+                    "size": "xl",
+                    "color": "#0000FF",
+                    "margin": "md"
+                },
+                {
+                    "type": "box",
+                    "layout": "horizontal",
+                    "spacing": "md",
+                    "contents": [
+                        {"type": "button", "action": {"type": "message", "label": "莊", "text": "莊"}, "style": "primary"},
+                        {"type": "button", "action": {"type": "message", "label": "閒", "text": "閒"}, "style": "primary"},
+                        {"type": "button", "action": {"type": "message", "label": "和", "text": "和"}, "style": "primary"}
+                    ]
+                }
+            ]
+        }
+    }
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
     text = event.message.text.strip()
     user_id = event.source.user_id
 
-    # 初始化使用者資料
-    if user_id not in user_memory['records']:
-        user_memory['records'][user_id] = []
-    if user_id not in user_memory['last_suggestion']:
-        user_memory['last_suggestion'][user_id] = None
-    if user_id not in user_memory['cards']:
-        user_memory['cards'][user_id] = []
-    if user_id not in user_memory['settings']:
-        user_memory['settings'][user_id] = {}
-    if user_id not in user_memory['results']:
-        user_memory['results'][user_id] = []
-    if user_id not in user_memory['profit']:
-        user_memory['profit'][user_id] = 0
+    # 初始化資料
+    for key in user_memory:
+        if user_id not in user_memory[key]:
+            user_memory[key][user_id] = [] if key != 'profit' else 0
 
-    # 🔵 下課指令
+    # ✅ 下課
     if text == "下課":
-        user_memory['records'].pop(user_id, None)
-        user_memory['last_suggestion'].pop(user_id, None)
-        user_memory['cards'].pop(user_id, None)
-        user_memory['settings'].pop(user_id, None)
-        user_memory['results'].pop(user_id, None)
-        user_memory['profit'].pop(user_id, None)
+        for key in user_memory:
+            user_memory[key].pop(user_id, None)
 
         flex_message = {
             "type": "bubble",
@@ -80,80 +99,86 @@ def handle_message(event):
         )
         return
 
-    # 🔵 清除紀錄
+    # 🧹 清除紀錄
     if text == "清除紀錄":
-        user_memory['records'][user_id] = []
         user_memory['cards'][user_id] = []
-        user_memory['last_suggestion'][user_id] = None
         user_memory['results'][user_id] = []
+        user_memory['records'][user_id] = []
+        user_memory['last_suggestion'][user_id] = None
         user_memory['profit'][user_id] = 0
 
         line_bot_api.reply_message(
             event.reply_token,
-            TextSendMessage(text="🧹 已清除紀錄！可以重新開始輸入牌路～")
+            TextSendMessage(text="🧹 已清除紀錄，可以重新開始輸入牌路囉！")
         )
         return
 
-    # 🔵 顯示紀錄
+    # 📋 顯示紀錄
     if text == "顯示紀錄":
         results = user_memory['results'][user_id]
-        if not results:
-            reply_text = "📋 目前沒有任何紀錄喔！"
-        else:
-            wins = results.count('贏')
-            losses = results.count('輸')
-            total = wins + losses
-            win_rate = (wins / total) * 100 if total > 0 else 0
-            profit = user_memory['profit'][user_id]
+        wins = results.count("贏")
+        losses = results.count("輸")
+        total = wins + losses
+        win_rate = (wins / total) * 100 if total > 0 else 0
+        profit = user_memory['profit'][user_id]
 
-            reply_text = f"📋 歷史紀錄\n"
-            reply_text += f"✅ 勝場：{wins}｜❌ 敗場：{losses}\n"
-            reply_text += f"📈 命中率：{win_rate:.1f}%\n"
-            reply_text += f"💰 累積獲利：{profit} 元"
-
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(text=reply_text)
-        )
+        reply = f"📊 紀錄統計：\n✅ 勝場：{wins}，❌ 敗場：{losses}\n🎯 命中率：{win_rate:.1f}%\n💰 累積損益：{profit} 元"
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
         return
 
-    # 🔵 正常處理牌路輸入
-    cards = user_memory['cards'][user_id]
+    # 🃏 處理牌路輸入
     clean_cards = clean_input(text)
-
     if clean_cards:
+        cards = user_memory['cards'][user_id]
         for c in clean_cards:
             cards.append(c)
 
-        suggestion = predict_next_bet(cards)
-        user_memory['last_suggestion'][user_id] = suggestion
+            # 預測與統計
+            suggestion = predict_next_bet(cards)
+            user_memory['last_suggestion'][user_id] = suggestion
 
-        reply_text = f"🎲 建議下一把：{suggestion}"
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(text=reply_text)
-        )
-
-        # 自動紀錄
-        for c in clean_cards:
-            if c == suggestion:
-                user_memory['results'][user_id].append('贏')
-                user_memory['profit'][user_id] += 100
-            elif c == '和':
-                # 和局不計勝負，不影響 profit
+            # 第一次不記錄
+            if len(cards) <= 1:
                 continue
+
+            if c == '和':
+                continue  # 和局不影響勝負
+            elif c == suggestion:
+                user_memory['results'][user_id].append("贏")
+                user_memory['profit'][user_id] += 100
             else:
-                user_memory['results'][user_id].append('輸')
+                user_memory['results'][user_id].append("輸")
                 user_memory['profit'][user_id] -= 100
 
-        # 每局紀錄
-        user_memory['records'][user_id].append(f"輸入：{text} ➡ 建議：{suggestion}")
+        # 計算勝率分佈
+        count_b = cards.count("莊")
+        count_p = cards.count("閒")
+        count_t = cards.count("和")
+        total = max(1, count_b + count_p + count_t)
+        banker_rate = count_b / total * 100
+        player_rate = count_p / total * 100
+        tie_rate = count_t / total * 100
+        win_count = user_memory['results'][user_id].count("贏")
+        lose_count = user_memory['results'][user_id].count("輸")
+        win_rate = win_count / (win_count + lose_count) * 100 if (win_count + lose_count) else 0
+
+        flex = generate_suggestion_flex(suggestion, win_rate, banker_rate, player_rate, tie_rate)
+        line_bot_api.reply_message(
+            event.reply_token,
+            FlexSendMessage(alt_text="下注建議", contents=flex)
+        )
     else:
         line_bot_api.reply_message(
             event.reply_token,
             TextSendMessage(text="⚠️ 請輸入正確的牌路，例如：莊閒莊和")
         )
 
+# 🌐 防止 404：首頁簡易文字
+@app.route("/", methods=['GET'])
+def home():
+    return "✅ LINE 百家樂機器人運作中！"
+
+# 📩 LINE Webhook Callback
 @app.route("/callback", methods=['POST'])
 def callback():
     signature = request.headers['X-Line-Signature']
