@@ -1,3 +1,4 @@
+
 import random
 from flask import Flask, request
 from linebot import LineBotApi, WebhookHandler
@@ -20,6 +21,9 @@ user_memory = {
     'game_count': {},
 }
 
+recent_results = []
+stats = {'total_bets': 0, 'hit_bets': 0, 'profit': 0}
+
 def clean_input(text):
     return ''.join(c for c in text if c in '莊閒和')
 
@@ -40,7 +44,6 @@ def calculate_hit_rate(cards):
     if len(cards) <= 1: return 0
     return round(100 * sum(1 for i in range(1, len(cards)) if cards[i] != cards[i-1]) / (len(cards)-1), 1)
 
-# 🧠 偵測莊閒連開
 def detect_streak(cards, threshold=4):
     if len(cards) < threshold:
         return None
@@ -55,33 +58,72 @@ def detect_streak(cards, threshold=4):
         return last
     return None
 
-def generate_analysis_flex(cards, suggestion, hit_rate, logic_mode, games, wins, losses):
-    mode_tip = f"⚙️ 當前模式：{logic_mode}"
-    count_z, count_x, count_h = cards.count('莊'), cards.count('閒'), cards.count('和')
-    total = len(cards)
-    percent = lambda c: round(c / total * 100, 1) if total else 0
-    color_map = {"莊": "#FF4444", "閒": "#0000FF", "和": "#00C300"}
-    return {
-        "type": "bubble",
-        "body": {
-            "type": "box", "layout": "vertical", "spacing": "md", "paddingAll": "lg",
-            "contents": [
-                {"type": "text", "text": mode_tip, "size": "sm", "color": "#888888"},
-                {"type": "text", "text": "📊 百家樂分析結果", "weight": "bold", "size": "lg"},
-                {"type": "separator"},
-                {"type": "text", "text": f"莊：{percent(count_z)}% 閒：{percent(count_x)}% 和：{percent(count_h)}%", "size": "sm"},
-                {"type": "text", "text": f"🎯 命中率：{hit_rate}%", "size": "sm"},
-                {"type": "text", "text": f"局數：{games}｜贏：{wins}｜輸：{losses}", "size": "sm"},
-                {"type": "separator"},
-                {"type": "text", "text": f"推薦下注：{suggestion}", "weight": "bold", "size": "xl", "color": color_map[suggestion], "margin": "md"},
-                {"type": "box", "layout": "horizontal", "margin": "md", "contents": [
-                    {"type": "button", "action": {"type": "message", "label": "莊", "text": "莊"}, "style": "primary", "color": "#FF4444"},
-                    {"type": "button", "action": {"type": "message", "label": "閒", "text": "閒"}, "style": "primary", "color": "#0000FF"},
-                    {"type": "button", "action": {"type": "message", "label": "和", "text": "和"}, "style": "primary", "color": "#00C300"}
-                ]}
-            ]
-        }
-    }
+def add_new_result(result):
+    global recent_results
+    if result not in ['莊', '閒', '和']:
+        return
+    recent_results.append(result)
+    if len(recent_results) > 10:
+        recent_results.pop(0)
+
+def detect_panxing():
+    if len(recent_results) < 10:
+        return "資料不足，繼續收集中"
+    if recent_results[-3:] == ['莊', '莊', '莊'] or recent_results[-3:] == ['閒', '閒', '閒']:
+        return "長龍盤，建議跟龍"
+    alternated = True
+    for i in range(1, 6):
+        if recent_results[-i] == recent_results[-i-1]:
+            alternated = False
+            break
+    if alternated:
+        return "單跳盤，建議跟跳"
+    if recent_results[-5:-2] == ['莊', '莊', '莊'] and recent_results[-2:] == ['閒', '閒']:
+        return "轉勢盤，建議跟閒"
+    if recent_results[-5:-2] == ['閒', '閒', '閒'] and recent_results[-2:] == ['莊', '莊']:
+        return "轉勢盤，建議跟莊"
+    mixed = False
+    for i in range(5):
+        if recent_results[-(i+2)] == recent_results[-(i+1)]:
+            mixed = True
+            break
+    if not mixed:
+        return "亂盤，建議觀望"
+    return "目前無明確型態，繼續觀察"
+
+def generate_reply_with_confidence(panxing):
+    if panxing == "長龍盤，建議跟龍":
+        return "📈 主路分析：長龍盤！建議跟龍 ➡️ 信心80%"
+    elif panxing == "單跳盤，建議跟跳":
+        return "📈 主路分析：單跳盤！建議跟跳 ➡️ 信心70%"
+    elif "轉勢盤" in panxing:
+        return "📈 主路分析：轉勢盤！建議跟新方向 ➡️ 信心65%"
+    elif panxing == "亂盤，建議觀望":
+        return "📈 主路分析：亂盤！建議觀望休息 ➡️ 信心低"
+    else:
+        return "📈 主路分析：資料收集中，請持續觀察。"
+
+def update_stats(suggest, actual):
+    global stats
+    stats['total_bets'] += 1
+    if suggest == actual:
+        stats['hit_bets'] += 1
+        stats['profit'] += 100
+    else:
+        stats['profit'] -= 100
+
+def get_hit_rate():
+    if stats['total_bets'] == 0:
+        return 0
+    return round(stats['hit_bets'] / stats['total_bets'] * 100, 2)
+
+def show_stats():
+    return f"""目前統計：
+- 總下注：{stats['total_bets']} 局
+- 命中次數：{stats['hit_bets']} 局
+- 命中率：{get_hit_rate()}%
+- 累積獲利：{stats['profit']} 元
+"""
 
 @app.route('/', methods=['GET'])
 def home():
@@ -104,7 +146,6 @@ def handle_message(event):
     user_id = event.source.user_id
     raw_input = event.message.text.strip()
 
-    # 序號驗證
     if raw_input.startswith('序號：') or raw_input.startswith('序號:'):
         code = raw_input.replace('序號：', '').replace('序號:', '').strip()
         if code in activation_codes and activation_codes[code] is None:
@@ -127,28 +168,17 @@ def handle_message(event):
     if raw_input == '下課':
         for key in ['cards', 'records', 'last_suggestion', 'settings', 'game_count']:
             user_memory[key].pop(user_id, None)
-        flex_message = {
-            "type": "bubble",
-            "body": {
-                "type": "box", "layout": "vertical",
-                "contents": [
-                    {"type": "text", "text": "✅ 已下課", "weight": "bold", "size": "xl", "align": "center"},
-                    {"type": "text", "text": "所有紀錄已清除", "size": "md", "align": "center", "margin": "md"},
-                    {"type": "text", "text": "感謝使用 🙏", "size": "sm", "align": "center", "margin": "md"}
-                ]
-            }
-        }
-        line_bot_api.reply_message(event.reply_token, FlexSendMessage(alt_text="✅ 已下課", contents=flex_message))
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="✅ 已下課，所有紀錄已清除"))
         return
 
     if raw_input == '原始邏輯':
         user_memory['settings'][user_id]['logic'] = '正常邏輯'
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text='✅ 切換到正常預測邏輯'))
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text='✅ 已切換到正常邏輯'))
         return
 
     if raw_input == '反邏輯':
         user_memory['settings'][user_id]['logic'] = '反邏輯'
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text='✅ 切換到反邏輯模式'))
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text='✅ 已切換到反邏輯模式'))
         return
 
     if all(c in '莊閒和' for c in raw_input):
@@ -156,7 +186,6 @@ def handle_message(event):
             if c != '和':
                 user_memory['cards'][user_id] += c
                 cards = user_memory['cards'][user_id]
-
                 logic_mode = user_memory['settings'][user_id]['logic']
                 streak = detect_streak(cards)
                 if streak:
@@ -167,32 +196,28 @@ def handle_message(event):
                         suggestion = reverse_bet(suggestion)
 
                 last = user_memory['last_suggestion'].get(user_id)
-
                 messages = []
+
                 if last is not None:
                     user_memory['records'][user_id].append({'suggestion': last, 'hit': last == c})
                     user_memory['game_count'][user_id] += 1
-
+                    update_stats(last, c)
                     result_text = f"好耶！這局開「{c}」✅ 命中！" if last == c else f"這局開「{c}」❌ 沒中～"
-                    total_profit = sum([100 if r['hit'] else -100 for r in user_memory['records'][user_id]])
-                    profit_text = f"累積獲利：{total_profit:+} 元"
+                    profit_text = f"累積獲利：{stats['profit']} 元"
                     messages.append(TextSendMessage(text=result_text))
                     messages.append(TextSendMessage(text=profit_text))
 
                 user_memory['last_suggestion'][user_id] = suggestion
-
-                wins = sum(1 for r in user_memory['records'][user_id] if r['hit'])
-                losses = user_memory['game_count'][user_id] - wins
-                games = user_memory['game_count'][user_id]
-
-                analysis_flex = generate_analysis_flex(cards, suggestion, hit_rate=calculate_hit_rate(cards), logic_mode=logic_mode, games=games, wins=wins, losses=losses)
-                messages.append(FlexSendMessage(alt_text='百家樂分析結果', contents=analysis_flex))
+                add_new_result(c)
+                panxing = detect_panxing()
+                panxing_msg = generate_reply_with_confidence(panxing)
+                messages.append(TextSendMessage(text=panxing_msg))
 
                 line_bot_api.reply_message(event.reply_token, messages)
                 return
 
     line_bot_api.reply_message(event.reply_token, TextSendMessage(
-        text='⚠️ 請輸入正確的牌路，例如：莊閒莊莊閒'
+        text='⚠️ 請輸入正確牌路，例如：莊閒莊莊閒'
     ))
 
 if __name__ == '__main__':
