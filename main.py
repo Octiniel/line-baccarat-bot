@@ -40,7 +40,7 @@ def calculate_hit_rate(cards):
     if len(cards) <= 1: return 0
     return round(100 * sum(1 for i in range(1, len(cards)) if cards[i] != cards[i-1]) / (len(cards)-1), 1)
 
-# 🧠 正確偵測莊閒連開
+# 🧠 偵測莊閒連開
 def detect_streak(cards, threshold=4):
     if len(cards) < threshold:
         return None
@@ -119,13 +119,11 @@ def handle_message(event):
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text='🔒 請先輸入授權序號'))
         return
 
-    # 初始化使用者資料
     user_memory['settings'].setdefault(user_id, {'logic': '正常邏輯'})
     user_memory.setdefault('cards', {}).setdefault(user_id, '')
     user_memory.setdefault('records', {}).setdefault(user_id, [])
     user_memory.setdefault('game_count', {}).setdefault(user_id, 0)
 
-    # 下課指令
     if raw_input == '下課':
         for key in ['cards', 'records', 'last_suggestion', 'settings', 'game_count']:
             user_memory[key].pop(user_id, None)
@@ -143,7 +141,6 @@ def handle_message(event):
         line_bot_api.reply_message(event.reply_token, FlexSendMessage(alt_text="✅ 已下課", contents=flex_message))
         return
 
-    # 切換邏輯
     if raw_input == '原始邏輯':
         user_memory['settings'][user_id]['logic'] = '正常邏輯'
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text='✅ 切換到正常預測邏輯'))
@@ -154,21 +151,13 @@ def handle_message(event):
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text='✅ 切換到反邏輯模式'))
         return
 
-    # 正常處理牌路
     if all(c in '莊閒和' for c in raw_input):
         for c in clean_input(raw_input):
             if c != '和':
                 user_memory['cards'][user_id] += c
                 cards = user_memory['cards'][user_id]
-                last = user_memory['last_suggestion'].get(user_id)
-
-                if last:
-                    user_memory['records'][user_id].append({'suggestion': last, 'hit': last == c})
-                    user_memory['game_count'][user_id] += 1
 
                 logic_mode = user_memory['settings'][user_id]['logic']
-
-                # 🧠 節奏轉判斷（四連追龍，節奏優先）
                 streak = detect_streak(cards)
                 if streak:
                     suggestion = streak
@@ -177,29 +166,31 @@ def handle_message(event):
                     if logic_mode == '反邏輯':
                         suggestion = reverse_bet(suggestion)
 
-                hit_rate = calculate_hit_rate(cards)
+                last = user_memory['last_suggestion'].get(user_id)
+
+                messages = []
+                if last is not None:
+                    user_memory['records'][user_id].append({'suggestion': last, 'hit': last == c})
+                    user_memory['game_count'][user_id] += 1
+
+                    result_text = f"好耶！這局開「{c}」✅ 命中！" if last == c else f"這局開「{c}」❌ 沒中～"
+                    total_profit = sum([100 if r['hit'] else -100 for r in user_memory['records'][user_id]])
+                    profit_text = f"累積獲利：{total_profit:+} 元"
+                    messages.append(TextSendMessage(text=result_text))
+                    messages.append(TextSendMessage(text=profit_text))
+
                 user_memory['last_suggestion'][user_id] = suggestion
 
                 wins = sum(1 for r in user_memory['records'][user_id] if r['hit'])
                 losses = user_memory['game_count'][user_id] - wins
                 games = user_memory['game_count'][user_id]
 
-                analysis_flex = generate_analysis_flex(cards, suggestion, hit_rate, logic_mode, games, wins, losses)
-
-                messages = []
-
-                last_record = user_memory['records'][user_id][-1]
-                result_text = f"好耶！這局開「{c}」✅ 命中！" if last_record['hit'] else f"這局開「{c}」❌ 沒中～"
-                total_profit = sum([100 if r['hit'] else -100 for r in user_memory['records'][user_id]])
-                profit_text = f"累積獲利：{total_profit:+} 元"
-                messages.append(TextSendMessage(text=result_text))
-                messages.append(TextSendMessage(text=profit_text))
+                analysis_flex = generate_analysis_flex(cards, suggestion, hit_rate=calculate_hit_rate(cards), logic_mode=logic_mode, games=games, wins=wins, losses=losses)
                 messages.append(FlexSendMessage(alt_text='百家樂分析結果', contents=analysis_flex))
 
                 line_bot_api.reply_message(event.reply_token, messages)
                 return
 
-    # 非法輸入
     line_bot_api.reply_message(event.reply_token, TextSendMessage(
         text='⚠️ 請輸入正確的牌路，例如：莊閒莊莊閒'
     ))
