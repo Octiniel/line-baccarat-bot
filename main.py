@@ -9,21 +9,21 @@ app = Flask(__name__)
 line_bot_api = LineBotApi(os.environ.get("CHANNEL_ACCESS_TOKEN"))
 handler = WebhookHandler(os.environ.get("CHANNEL_SECRET"))
 
-# 🎟️ 一次性序號池（key: 序號, value: 綁定 user_id 或 None）
+# 🎟️ 一次性序號池
 activation_codes = {
     "VIA-A01": None,
     "VIA-A02": None,
     "VIA-A03": None
 }
 
-# 🧠 記住已啟動的使用者
+# 🧠 啟動的使用者
 activated_users = set()
 
-# 使用者記憶資料
+# 使用者記憶體
 user_memory = {'records': {}, 'last_suggestion': {}, 'cards': {}, 'settings': {}}
 
 def clean_input(text):
-    return ''.join(c for c in text if c in '莊閒和')
+    return ''.join(c for c in '莊閒和')
 
 def predict_next_bet(cards):
     if len(cards) < 3:
@@ -33,12 +33,21 @@ def predict_next_bet(cards):
         return last3[0]
     return '閒' if cards[-1] == '莊' else '莊'
 
+def reverse_bet(suggestion):
+    if suggestion == '莊':
+        return '閒'
+    elif suggestion == '閒':
+        return '莊'
+    else:
+        return '和'  # 和不變
+
 def calculate_hit_rate(cards):
-    if len(cards) <= 1: return 0
+    if len(cards) <= 1:
+        return 0
     return round(100 * sum(1 for i in range(1, len(cards)) if cards[i] != cards[i-1]) / (len(cards)-1), 1)
 
 def generate_analysis_flex(cards, suggestion, hit_rate, logic_mode):
-    mode_tip = f"⚙️ 當前預測模式：{logic_mode}（輸入 '原始邏輯' 可切換）"
+    mode_tip = f"⚙️ 當前預測模式：{logic_mode}"
     count_z, count_x, count_h = cards.count('莊'), cards.count('閒'), cards.count('和')
     total = len(cards)
     percent = lambda c: round(c / total * 100, 1) if total else 0
@@ -66,12 +75,10 @@ def generate_analysis_flex(cards, suggestion, hit_rate, logic_mode):
         }
     }
 
-# 👇 補上首頁路由，避免 Render 的 404
 @app.route('/', methods=['GET'])
 def home():
     return 'LINE Baccarat Bot is running.', 200
 
-# 主 Webhook 路由
 @app.route('/callback', methods=['GET', 'POST'])
 def callback():
     if request.method == 'GET':
@@ -140,8 +147,13 @@ def handle_message(event):
 
     # 切換邏輯模式
     if raw_input == '原始邏輯':
-        user_memory['settings'][user_id]['logic'] = '原始邏輯'
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text='✅ 已切換為原始預測邏輯'))
+        user_memory['settings'][user_id]['logic'] = '正常邏輯'
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text='✅ 已切換為正常預測邏輯'))
+        return
+
+    if raw_input == '反邏輯':
+        user_memory['settings'][user_id]['logic'] = '反邏輯'
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text='✅ 已切換為反邏輯模式'))
         return
 
     # 處理有效牌路
@@ -158,12 +170,17 @@ def handle_message(event):
                 'hit': last == raw_input
             })
 
+        # 讀取目前邏輯
+        logic_mode = user_memory['settings'][user_id]['logic']
         suggestion = predict_next_bet(cards)
+        if logic_mode == '反邏輯':
+            suggestion = reverse_bet(suggestion)
+
         hit_rate = calculate_hit_rate(cards)
         user_memory['last_suggestion'][user_id] = suggestion
 
         # 生成分析結果
-        analysis_flex = generate_analysis_flex(cards, suggestion, hit_rate, '原始邏輯')
+        analysis_flex = generate_analysis_flex(cards, suggestion, hit_rate, logic_mode)
         messages = []
 
         if raw_input != '和' and user_memory['records'][user_id]:
@@ -180,7 +197,7 @@ def handle_message(event):
 
     # 非法輸入
     line_bot_api.reply_message(event.reply_token, TextSendMessage(
-        text='請輸入包含『莊』『閒』『和』的牌路，例如：莊閒莊莊閒'
+        text='請輸入包含「莊」「閒」「和」的牌路，例如：莊閒莊莊閒'
     ))
 
 if __name__ == '__main__':
