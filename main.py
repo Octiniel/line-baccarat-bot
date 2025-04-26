@@ -21,7 +21,7 @@ user_memory = {
 }
 
 def clean_input(text):
-    return ''.join(c for c in '莊閒和')
+    return ''.join(c for c in text if c in '莊閒和')
 
 def predict_next_bet(cards):
     if len(cards) < 3:
@@ -40,7 +40,7 @@ def calculate_hit_rate(cards):
     if len(cards) <= 1: return 0
     return round(100 * sum(1 for i in range(1, len(cards)) if cards[i] != cards[i-1]) / (len(cards)-1), 1)
 
-# 🔥 修正版 detect_streak（正確計算連開莊 or 閒）
+# 🧠 正確偵測莊閒連開
 def detect_streak(cards, threshold=4):
     if len(cards) < threshold:
         return None
@@ -156,49 +156,48 @@ def handle_message(event):
 
     # 正常處理牌路
     if all(c in '莊閒和' for c in raw_input):
-        if raw_input != '和':
-            user_memory['cards'][user_id] += clean_input(raw_input)
+        for c in clean_input(raw_input):
+            if c != '和':
+                user_memory['cards'][user_id] += c
+                cards = user_memory['cards'][user_id]
+                last = user_memory['last_suggestion'].get(user_id)
 
-        cards = user_memory['cards'][user_id]
-        last = user_memory['last_suggestion'].get(user_id)
+                if last:
+                    user_memory['records'][user_id].append({'suggestion': last, 'hit': last == c})
+                    user_memory['game_count'][user_id] += 1
 
-        if last and raw_input != '和':
-            user_memory['records'][user_id].append({'suggestion': last, 'hit': last == raw_input})
-            user_memory['game_count'][user_id] += 1
+                logic_mode = user_memory['settings'][user_id]['logic']
 
-        logic_mode = user_memory['settings'][user_id]['logic']
+                # 🧠 節奏轉判斷（四連追龍，節奏優先）
+                streak = detect_streak(cards)
+                if streak:
+                    suggestion = streak
+                else:
+                    suggestion = predict_next_bet(cards)
+                    if logic_mode == '反邏輯':
+                        suggestion = reverse_bet(suggestion)
 
-        # 🧠 節奏轉判斷
-        streak = detect_streak(cards)
-        if streak:
-            suggestion = streak
-        else:
-            suggestion = predict_next_bet(cards)
-            if logic_mode == '反邏輯':
-                suggestion = reverse_bet(suggestion)
+                hit_rate = calculate_hit_rate(cards)
+                user_memory['last_suggestion'][user_id] = suggestion
 
-        hit_rate = calculate_hit_rate(cards)
-        user_memory['last_suggestion'][user_id] = suggestion
+                wins = sum(1 for r in user_memory['records'][user_id] if r['hit'])
+                losses = user_memory['game_count'][user_id] - wins
+                games = user_memory['game_count'][user_id]
 
-        wins = sum(1 for r in user_memory['records'][user_id] if r['hit'])
-        losses = user_memory['game_count'][user_id] - wins
-        games = user_memory['game_count'][user_id]
+                analysis_flex = generate_analysis_flex(cards, suggestion, hit_rate, logic_mode, games, wins, losses)
 
-        analysis_flex = generate_analysis_flex(cards, suggestion, hit_rate, logic_mode, games, wins, losses)
+                messages = []
 
-        messages = []
+                last_record = user_memory['records'][user_id][-1]
+                result_text = f"好耶！這局開「{c}」✅ 命中！" if last_record['hit'] else f"這局開「{c}」❌ 沒中～"
+                total_profit = sum([100 if r['hit'] else -100 for r in user_memory['records'][user_id]])
+                profit_text = f"累積獲利：{total_profit:+} 元"
+                messages.append(TextSendMessage(text=result_text))
+                messages.append(TextSendMessage(text=profit_text))
+                messages.append(FlexSendMessage(alt_text='百家樂分析結果', contents=analysis_flex))
 
-        if raw_input != '和' and user_memory['records'][user_id]:
-            last_record = user_memory['records'][user_id][-1]
-            result_text = f"好耶！這局開「{raw_input}」✅ 命中！" if last_record['hit'] else f"這局開「{raw_input}」❌ 沒中～"
-            total_profit = sum([100 if r['hit'] else -100 for r in user_memory['records'][user_id]])
-            profit_text = f"累積獲利：{total_profit:+} 元"
-            messages.append(TextSendMessage(text=result_text))
-            messages.append(TextSendMessage(text=profit_text))
-
-        messages.append(FlexSendMessage(alt_text='百家樂分析結果', contents=analysis_flex))
-        line_bot_api.reply_message(event.reply_token, messages)
-        return
+                line_bot_api.reply_message(event.reply_token, messages)
+                return
 
     # 非法輸入
     line_bot_api.reply_message(event.reply_token, TextSendMessage(
