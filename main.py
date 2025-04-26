@@ -196,6 +196,10 @@ def handle_message(event):
                 panxing_msg = generate_reply_with_confidence(panxing)
                 messages.append(TextSendMessage(text=panxing_msg))
 
+                wins = sum(1 for r in user_memory['records'][user_id] if r['hit'])
+                losses = user_memory['game_count'][user_id] - wins
+                games = user_memory['game_count'][user_id]
+
                 flex_message = {
                     "type": "bubble",
                     "body": {
@@ -207,7 +211,7 @@ def handle_message(event):
                             {"type": "text", "text": f"🎯 推薦下注：{suggestion}", "size": "xl", "weight": "bold"},
                             {"type": "separator"},
                             {"type": "text", "text": f"目前命中率：{calculate_hit_rate(cards)}%", "size": "md"},
-                            {"type": "text", "text": f"總局數：{user_memory['game_count'][user_id]} 局", "size": "md"},
+                            {"type": "text", "text": f"局數：{games} ｜贏：{wins} ｜輸：{losses}", "size": "md"},
                             {"type": "text", "text": f"當前模式：{logic_mode}", "size": "sm", "color": "#888888"},
                             {"type": "separator"},
                             {"type": "box", "layout": "horizontal", "margin": "md", "contents": [
@@ -227,4 +231,3 @@ def handle_message(event):
 
 if __name__ == '__main__':
     app.run(debug=True)
-""
