@@ -40,13 +40,13 @@ def calculate_hit_rate(cards):
     if len(cards) <= 1: return 0
     return round(100 * sum(1 for i in range(1, len(cards)) if cards[i] != cards[i-1]) / (len(cards)-1), 1)
 
-# 🔥 新增：判斷莊/閒連開
+# 🔥 修正版 detect_streak（正確計算連開莊 or 閒）
 def detect_streak(cards, threshold=4):
     if len(cards) < threshold:
         return None
     last = cards[-1]
-    count = 0
-    for c in reversed(cards):
+    count = 1
+    for c in reversed(cards[:-1]):
         if c == last:
             count += 1
         else:
@@ -168,7 +168,7 @@ def handle_message(event):
 
         logic_mode = user_memory['settings'][user_id]['logic']
 
-        # 🧠 節奏轉判斷：四連以上追龍
+        # 🧠 節奏轉判斷
         streak = detect_streak(cards)
         if streak:
             suggestion = streak
