@@ -1,0 +1,132 @@
+
+import random
+import matplotlib.pyplot as plt
+from io import BytesIO
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
+
+class BaccaratGame:
+    def __init__(self):
+        self.bankroll = 1000
+        self.mise_initiale = 10
+        self.mise_actuelle = 10
+        self.strategie = "Martingale"
+        self.victoires_consec = 0
+        self.historique = [1000]
+        self.stats = {"gains": 0, "pertes": 0}
+
+    def tirer_main(self):
+        return (min(random.randint(1, 13), 10) + min(random.randint(1, 13), 10)) % 10
+
+    def jouer_tour(self):
+        joueur = self.tirer_main()
+        banquier = self.tirer_main()
+        gagnant = "Joueur" if joueur > banquier else "Banquier" if banquier > joueur else "Égalité"
+        pari = "Banquier"
+        victoire = gagnant == pari
+        gain = 0
+
+        if victoire:
+            gain = self.mise_actuelle * (0.95 if pari == "Banquier" else 1)
+            self.bankroll += gain
+            self.stats["gains"] += 1
+        else:
+            self.bankroll -= self.mise_actuelle
+            self.stats["pertes"] += 1
+
+        if self.strategie == "Martingale":
+            self.mise_actuelle = self.mise_initiale if victoire else min(self.mise_actuelle * 2, self.bankroll)
+        elif self.strategie == "Paroli":
+            if victoire:
+                self.victoires_consec += 1
+                if self.victoires_consec < 3:
+                    self.mise_actuelle = min(self.mise_actuelle * 2, self.bankroll)
+                else:
+                    self.mise_actuelle = self.mise_initiale
+                    self.victoires_consec = 0
+            else:
+                self.victoires_consec = 0
+                self.mise_actuelle = self.mise_initiale
+
+        self.historique.append(self.bankroll)
+        return gagnant, victoire, self.bankroll
+
+    def get_graph(self):
+        plt.figure()
+        plt.plot(self.historique, label="Solde")
+        plt.axhline(1000, linestyle="--", color="gray", label="Solde initial")
+        plt.title("Évolution du solde")
+        plt.xlabel("Tours")
+        plt.ylabel("Solde")
+        plt.legend()
+        buf = BytesIO()
+        plt.savefig(buf, format="png")
+        buf.seek(0)
+        plt.close()
+        return buf
+
+sessions = {}
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    sessions[user_id] = BaccaratGame()
+    await update.message.reply_text(
+        "Bienvenue au Bot Baccarat !",
+        reply_markup=main_menu()
+    )
+
+def main_menu():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("▶️ Jouer", callback_data="play")],
+        [InlineKeyboardButton("Changer stratégie", callback_data="change_strategy")],
+        [InlineKeyboardButton("Voir solde", callback_data="solde")],
+        [InlineKeyboardButton("Graphique", callback_data="graph")]
+    ])
+
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+    await query.answer()
+
+    if user_id not in sessions:
+        await query.edit_message_text("Tape /start pour commencer.")
+        return
+
+    game = sessions[user_id]
+
+    if query.data == "play":
+        gagnant, victoire, solde = game.jouer_tour()
+        msg = f"Gagnant : {gagnant}\n{'Victoire' if victoire else 'Défaite'}\nSolde : {solde:.2f}"
+        await query.edit_message_text(msg, reply_markup=main_menu())
+    elif query.data == "solde":
+        solde = game.bankroll
+        await query.edit_message_text(f"Solde actuel : {solde:.2f}", reply_markup=main_menu())
+    elif query.data == "graph":
+        image = game.get_graph()
+        await query.message.reply_photo(photo=image)
+        await query.edit_message_text("Voici le graphique :", reply_markup=main_menu())
+    elif query.data == "change_strategy":
+        await query.edit_message_text(
+            "Choisissez une stratégie :",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("Martingale", callback_data="set_Martingale")],
+                [InlineKeyboardButton("Paroli", callback_data="set_Paroli")],
+                [InlineKeyboardButton("⬅️ Retour", callback_data="menu")]
+            ])
+        )
+    elif query.data.startswith("set_"):
+        game.strategie = query.data.split("_")[1]
+        await query.edit_message_text(f"Stratégie définie : {game.strategie}", reply_markup=main_menu())
+    elif query.data == "menu":
+        await query.edit_message_text("Menu principal :", reply_markup=main_menu())
+
+def main():
+    import os
+    TOKEN = os.getenv("BOT_TOKEN")
+    app = ApplicationBuilder().token(TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(button_handler))
+    app.run_polling()
+
+# if __name__ == "__main__":
+#     main()
